@@ -1,6 +1,4 @@
-# GUIA PARA LLMs — Projeto Cookings
-
-> Este documento existe para que **qualquer LLM** (Claude, GPT, etc.) que retome o trabalho neste projeto — em uma nova sessão, sem memória do que foi discutido antes — consiga entender rapidamente o contexto, as decisões já tomadas e as regras a seguir, sem precisar que o desenvolvedor re-explique tudo. Leia este arquivo **antes** de sugerir mudanças de arquitetura ou de stack.
+# Projeto Cookings
 
 ---
 
