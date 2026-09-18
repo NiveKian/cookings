@@ -1,0 +1,38 @@
+version: "3.9"
+
+# Mesma rede externa usada por services/ e app/ — deve já existir
+# (criada uma única vez com: docker network create cookings-network).
+# Os hostnames "service_cursos", "service_matriculas" e "service_receitas"
+# só resolvem porque os containers de services/ estão nesta mesma rede.
+networks:
+  default:
+    name: cookings-network
+    external: true
+
+services:
+  mcp_cursos:
+    build: ./mcp_cursos
+    container_name: mcp_cursos
+    restart: unless-stopped
+    env_file:
+      - ./mcp_cursos/.env
+    ports:
+      - "8001:8001"
+
+  mcp_matriculas:
+    build: ./mcp_matriculas
+    container_name: mcp_matriculas
+    restart: unless-stopped
+    env_file:
+      - ./mcp_matriculas/.env
+    ports:
+      - "8002:8002"
+
+  mcp_receitas:
+    build: ./mcp_receitas
+    container_name: mcp_receitas
+    restart: unless-stopped
+    env_file:
+      - ./mcp_receitas/.env
+    ports:
+      - "8003:8003"
