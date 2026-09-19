@@ -6,8 +6,6 @@ import type {
   ToolDefinition,
 } from "../../domain/ports/LLMPort";
 
-import { ModelUnavailableError } from "../../domain/ports/LLMPort";
-
 // Adapter para a OpenAI Chat Completions API (GPT), via fetch direto.
 // Implementa LLMPort — para trocar de provedor, ver
 // infrastructure/llm/llmFactory.ts.
@@ -53,66 +51,67 @@ function turnsToOpenAIMessages(systemPrompt: string, turns: ConversationTurn[]):
   return messages;
 }
 
+// Códigos transitórios: vale tentar de novo. Qualquer outro (400, 401,
+// 404...) é erro definitivo — não adianta repetir.
+const RETRYABLE_STATUS = [429, 503];
+const MAX_RETRIES = 3;
+
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 export class GptAdapter implements LLMPort {
   readonly providerName = "gpt";
-  private readonly models: string[];
 
-  constructor(private readonly apiKey: string, models: string = "gpt-4o-mini") {
-    this.models = models.split(",").map((m) => m.trim()).filter(Boolean);
-  }
+  constructor(
+    private readonly apiKey: string,
+    private readonly model: string = "gpt-4o-mini"
+  ) {}
 
   async converse(params: {
     systemPrompt: string;
     turns: ConversationTurn[];
     tools: ToolDefinition[];
   }): Promise<LLMTurnResult> {
-    let ultimoErro: Error | null = null;
-
-    for (const model of this.models) {
-      try {
-        return await this.callModel(model, params);
-      } catch (err) {
-        if (err instanceof ModelUnavailableError) {
-          console.warn(`[gpt] "${model}" indisponível, tentando próximo da lista...`);
-          ultimoErro = err;
-          continue;
-        }
-        throw err;
-      }
-    }
-
-    throw ultimoErro ?? new Error("Nenhum modelo GPT da lista está disponível.");
-  }
-
-  private async callModel(
-    model: string,
-    params: { systemPrompt: string; turns: ConversationTurn[]; tools: ToolDefinition[] }
-  ): Promise<LLMTurnResult> {
-    const resp = await fetch("https://api.openai.com/v1/chat/completions", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${this.apiKey}` },
-      body: JSON.stringify({
-        model,
-        messages: turnsToOpenAIMessages(params.systemPrompt, params.turns),
-        tools: params.tools.map((t) => ({
-          type: "function",
-          function: { name: t.name, description: t.description, parameters: t.inputSchema },
-        })),
-      }),
+    const requestBody = JSON.stringify({
+      model: this.model,
+      messages: turnsToOpenAIMessages(params.systemPrompt, params.turns),
+      tools: params.tools.map((t) => ({
+        type: "function",
+        function: { name: t.name, description: t.description, parameters: t.inputSchema },
+      })),
     });
 
-    if (resp.status === 404) {
-      const body = await resp.json().catch(() => null);
-      throw new ModelUnavailableError(
-        `Modelo GPT "${model}" indisponível (${body?.error?.code ?? "model_not_found"}).`
+    let resp: Response | null = null;
+
+    for (let tentativa = 0; tentativa <= MAX_RETRIES; tentativa++) {
+      resp = await fetch("https://api.openai.com/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${this.apiKey}`,
+        },
+        body: requestBody,
+      });
+
+      if (resp.ok) break;
+
+      const podeTentarDeNovo = RETRYABLE_STATUS.includes(resp.status) && tentativa < MAX_RETRIES;
+      if (!podeTentarDeNovo) break;
+
+      const esperaMs = 500 * 2 ** tentativa + Math.random() * 250;
+      console.warn(
+        `[gpt] ${resp.status} (tentativa ${tentativa + 1}/${MAX_RETRIES + 1}), aguardando ${Math.round(esperaMs)}ms...`
       );
-    }
-    if (!resp.ok) {
-      const detalhe = await resp.text();
-      throw new Error(`OpenAI API respondeu ${resp.status}: ${detalhe}`);
+      await sleep(esperaMs);
     }
 
-    const data = await resp.json();
+    if (!resp!.ok) {
+      const detalhe = await resp!.text();
+      throw new Error(`OpenAI API respondeu ${resp!.status}: ${detalhe}`);
+    }
+
+    const data = await resp!.json();
     const message = data?.choices?.[0]?.message ?? {};
 
     const toolCalls: LLMToolCall[] = (message.tool_calls ?? []).map((tc: OpenAIToolCall) => ({
@@ -121,7 +120,10 @@ export class GptAdapter implements LLMPort {
       arguments: JSON.parse(tc.function.arguments || "{}"),
     }));
 
-    if (toolCalls.length > 0) return { type: "tool_calls", toolCalls };
+    if (toolCalls.length > 0) {
+      return { type: "tool_calls", toolCalls };
+    }
+
     return { type: "text", text: message.content || "(sem resposta)" };
   }
 }

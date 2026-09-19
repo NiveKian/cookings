@@ -6,8 +6,6 @@ import type {
   ToolDefinition,
 } from "../../domain/ports/LLMPort";
 
-import { ModelUnavailableError } from "../../domain/ports/LLMPort";
-
 // Adapter para a Anthropic Messages API (Claude), via fetch direto.
 // Implementa LLMPort — para trocar de provedor, ver
 // infrastructure/llm/llmFactory.ts.
@@ -20,6 +18,15 @@ type ClaudeContentBlock =
 interface ClaudeMessage {
   role: "user" | "assistant";
   content: ClaudeContentBlock[];
+}
+
+// Códigos transitórios: vale tentar de novo. Qualquer outro (400, 401,
+// 404...) é erro definitivo — não adianta repetir.
+const RETRYABLE_STATUS = [429, 503, 529]; // 529 = "overloaded_error" específico da Anthropic
+const MAX_RETRIES = 3;
+
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function turnsToClaudeMessages(turns: ConversationTurn[]): ClaudeMessage[] {
@@ -57,76 +64,69 @@ function turnsToClaudeMessages(turns: ConversationTurn[]): ClaudeMessage[] {
 
 export class ClaudeAdapter implements LLMPort {
   readonly providerName = "claude";
-  private readonly models: string[];
 
-  constructor(private readonly apiKey: string, models: string = "claude-sonnet-4-6") {
-    // aceita lista separada por vírgula: "modelo-principal,modelo-fallback-1,modelo-fallback-2"
-    this.models = models.split(",").map((m) => m.trim()).filter(Boolean);
-  }
+  constructor(
+    private readonly apiKey: string,
+    private readonly model: string = "claude-sonnet-4-5"
+  ) {}
 
   async converse(params: {
     systemPrompt: string;
     turns: ConversationTurn[];
     tools: ToolDefinition[];
   }): Promise<LLMTurnResult> {
-    let lastError: Error | null = null;
-
-    for (const model of this.models) {
-      try {
-        return await this.callModel(model, params);
-      } catch (err) {
-        if (err instanceof ModelUnavailableError) {
-          console.warn(`[claude] "${model}" indisponível, tentando próximo da lista...`);
-          lastError = err;
-          continue; // tenta o próximo modelo da lista
-        }
-        throw err; // qualquer outro erro (auth, rate limit, rede) não deve tentar fallback
-      }
-    }
-
-    throw lastError ?? new Error("Nenhum modelo Claude da lista está disponível.");
-  }
-
-  private async callModel(
-    model: string,
-    params: { systemPrompt: string; turns: ConversationTurn[]; tools: ToolDefinition[] }
-  ): Promise<LLMTurnResult> {
-    const resp = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": this.apiKey,
-        "anthropic-version": "2023-06-01",
-      },
-      body: JSON.stringify({
-        model,
-        max_tokens: 1024,
-        system: params.systemPrompt,
-        messages: turnsToClaudeMessages(params.turns),
-        tools: params.tools.map((t) => ({
-          name: t.name,
-          description: t.description,
-          input_schema: t.inputSchema,
-        })),
-      }),
+    const requestBody = JSON.stringify({
+      model: this.model,
+      max_tokens: 1024,
+      system: params.systemPrompt,
+      messages: turnsToClaudeMessages(params.turns),
+      tools: params.tools.map((t) => ({
+        name: t.name,
+        description: t.description,
+        input_schema: t.inputSchema,
+      })),
     });
 
-    if (resp.status === 404) {
-      throw new ModelUnavailableError(`Modelo Claude "${model}" não encontrado ou retirado.`);
-    }
-    if (!resp.ok) {
-      const detalhe = await resp.text();
-      throw new Error(`Claude API respondeu ${resp.status}: ${detalhe}`);
+    let resp: Response | null = null;
+
+    for (let tentativa = 0; tentativa <= MAX_RETRIES; tentativa++) {
+      resp = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-api-key": this.apiKey,
+          "anthropic-version": "2023-06-01",
+        },
+        body: requestBody,
+      });
+
+      if (resp.ok) break;
+
+      const podeTentarDeNovo = RETRYABLE_STATUS.includes(resp.status) && tentativa < MAX_RETRIES;
+      if (!podeTentarDeNovo) break;
+
+      const esperaMs = 500 * 2 ** tentativa + Math.random() * 250;
+      console.warn(
+        `[claude] ${resp.status} (tentativa ${tentativa + 1}/${MAX_RETRIES + 1}), aguardando ${Math.round(esperaMs)}ms...`
+      );
+      await sleep(esperaMs);
     }
 
-    const data = await resp.json();
+    if (!resp!.ok) {
+      const detalhe = await resp!.text();
+      throw new Error(`Claude API respondeu ${resp!.status}: ${detalhe}`);
+    }
+
+    const data = await resp!.json();
     const blocks: ClaudeContentBlock[] = data.content ?? [];
 
     const toolCalls: LLMToolCall[] = blocks
       .filter((b): b is Extract<ClaudeContentBlock, { type: "tool_use" }> => b.type === "tool_use")
       .map((b) => ({ id: b.id, name: b.name, arguments: b.input }));
 
-    if (toolCalls.length > 0) return { type: "tool_calls", toolCalls };
+    if (toolCalls.length > 0) {
+      return { type: "tool_calls", toolCalls };
+    }
 
     const texto = blocks
       .filter((b): b is Extract<ClaudeContentBlock, { type: "text" }> => b.type === "text")

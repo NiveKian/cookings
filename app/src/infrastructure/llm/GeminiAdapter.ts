@@ -24,6 +24,15 @@ interface GeminiContent {
   parts: GeminiPart[];
 }
 
+// Códigos transitórios: vale tentar de novo. Qualquer outro (400, 404...)
+// é erro definitivo (payload errado, modelo errado) — não adianta repetir.
+const RETRYABLE_STATUS = [429, 503];
+const MAX_RETRIES = 3;
+
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 // Remove campos do JSON Schema que a API do Gemini não aceita.
 function sanitizeSchema(schema: unknown): unknown {
   if (Array.isArray(schema)) return schema.map(sanitizeSchema);
@@ -36,6 +45,18 @@ function sanitizeSchema(schema: unknown): unknown {
     return out;
   }
   return schema;
+}
+
+// O campo "response" do functionResponse do Gemini precisa ser um OBJETO
+// JSON — nunca array, string ou número direto ("Proto field is not
+// repeating, cannot start list" é o erro que a API dá se você mandar um
+// array cru). Tools que retornam lista (ex: listar_cursos) ou valor
+// primitivo precisam ser envelopadas antes de entrar no payload.
+function wrapForGemini(result: unknown): Record<string, unknown> {
+  if (result && typeof result === "object" && !Array.isArray(result)) {
+    return result as Record<string, unknown>;
+  }
+  return { result };
 }
 
 function turnsToGeminiContents(turns: ConversationTurn[]): GeminiContent[] {
@@ -54,7 +75,9 @@ function turnsToGeminiContents(turns: ConversationTurn[]): GeminiContent[] {
     } else if (turn.role === "tool_results") {
       contents.push({
         role: "user",
-        parts: turn.results.map((r) => ({ functionResponse: { id: r.toolCallId, name: r.name, response: r.result } })),
+        parts: turn.results.map((r) => ({
+          functionResponse: { id: r.toolCallId, name: r.name, response: wrapForGemini(r.result) },
+        })),
       });
     }
   }
@@ -94,18 +117,34 @@ export class GeminiAdapter implements LLMPort {
           : undefined,
     };
 
-    const resp = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
+    let resp: Response | null = null;
 
-    if (!resp.ok) {
-      const detalhe = await resp.text();
-      throw new Error(`Gemini API respondeu ${resp.status}: ${detalhe}`);
+    for (let tentativa = 0; tentativa <= MAX_RETRIES; tentativa++) {
+      resp = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+
+      if (resp.ok) break;
+
+      const podeTentarDeNovo = RETRYABLE_STATUS.includes(resp.status) && tentativa < MAX_RETRIES;
+      if (!podeTentarDeNovo) break;
+
+      // backoff exponencial com jitter: ~500ms, ~1000ms, ~2000ms
+      const esperaMs = 500 * 2 ** tentativa + Math.random() * 250;
+      console.warn(
+        `[gemini] ${resp.status} (tentativa ${tentativa + 1}/${MAX_RETRIES + 1}), aguardando ${Math.round(esperaMs)}ms...`
+      );
+      await sleep(esperaMs);
     }
 
-    const data = await resp.json();
+    if (!resp!.ok) {
+      const detalhe = await resp!.text();
+      throw new Error(`Gemini API respondeu ${resp!.status}: ${detalhe}`);
+    }
+
+    const data = await resp!.json();
     const parts: GeminiPart[] = data?.candidates?.[0]?.content?.parts ?? [];
 
     const toolCalls: LLMToolCall[] = parts
