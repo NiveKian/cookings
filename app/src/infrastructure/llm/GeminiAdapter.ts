@@ -17,7 +17,13 @@ interface GeminiPart {
   text?: string;
   functionCall?: { id?: string; name: string; args: Record<string, unknown> };
   functionResponse?: { id?: string; name: string; response: unknown };
+  // Exclusivo do Gemini 3.x: obrigatório ecoar de volta, sem alterar, em
+  // toda parte de functionCall que o modelo tiver retornado com um. Em
+  // chamadas paralelas, só a PRIMEIRA functionCall da resposta vem com
+  // assinatura — as demais legitimamente não têm (ver wiki oficial:
+  // https://ai.google.dev/gemini-api/docs/generate-content/thought-signatures).
   thoughtSignature?: string;
+  thought_signature?: string; // fallback defensivo, caso a API varie o casing
 }
 
 interface GeminiContent {
@@ -69,12 +75,12 @@ function turnsToGeminiContents(turns: ConversationTurn[]): GeminiContent[] {
     } else if (turn.role === "assistant") {
       contents.push({ role: "model", parts: [{ text: turn.content }] });
     } else if (turn.role === "assistant_tool_calls") {
-      // If your ConversationTurn includes the thoughtSignature (recommended), pass it here:
       contents.push({
         role: "model",
-        parts: turn.toolCalls.map((tc, index) => ({
-          // If you attach thoughtSignature to your domain tool call object:
-          thoughtSignature: (tc as any).thoughtSignature,
+        parts: turn.toolCalls.map((tc) => ({
+          // Ecoa a assinatura tal como veio (undefined vira "sem campo" no
+          // JSON — correto para as chamadas paralelas que não têm uma).
+          thoughtSignature: tc.thoughtSignature,
           functionCall: { id: tc.id, name: tc.name, args: tc.arguments },
         })),
       });
@@ -97,7 +103,7 @@ export class GeminiAdapter implements LLMPort {
   constructor(
     private readonly apiKey: string,
     private readonly model: string = "gemini-flash-latest"
-  ) { }
+  ) {}
 
   async converse(params: {
     systemPrompt: string;
@@ -112,14 +118,14 @@ export class GeminiAdapter implements LLMPort {
       tools:
         params.tools.length > 0
           ? [
-            {
-              functionDeclarations: params.tools.map((t) => ({
-                name: t.name,
-                description: t.description,
-                parameters: sanitizeSchema(t.inputSchema),
-              })),
-            },
-          ]
+              {
+                functionDeclarations: params.tools.map((t) => ({
+                  name: t.name,
+                  description: t.description,
+                  parameters: sanitizeSchema(t.inputSchema),
+                })),
+              },
+            ]
           : undefined,
     };
 
@@ -145,12 +151,16 @@ export class GeminiAdapter implements LLMPort {
       await sleep(esperaMs);
     }
 
-    if (!resp!.ok) {
-      const detalhe = await resp!.text();
-      throw new Error(`Gemini API respondeu ${resp!.status}: ${detalhe}`);
+    if (!resp) {
+      throw new Error("Gemini API: nenhuma resposta obtida após as tentativas.");
     }
 
-    const data = await resp!.json();
+    if (!resp.ok) {
+      const detalhe = await resp.text();
+      throw new Error(`Gemini API respondeu ${resp.status}: ${detalhe}`);
+    }
+
+    const data = await resp.json();
     const parts: GeminiPart[] = data?.candidates?.[0]?.content?.parts ?? [];
 
     const toolCalls: LLMToolCall[] = parts
@@ -159,8 +169,8 @@ export class GeminiAdapter implements LLMPort {
         id: p.functionCall!.id ?? `gemini-call-${Date.now()}-${i}`,
         name: p.functionCall!.name,
         arguments: p.functionCall!.args ?? {},
-        thoughtSignature: p.thoughtSignature ?? (p as any).thought_signature,
-      } as any));
+        thoughtSignature: p.thoughtSignature ?? p.thought_signature,
+      }));
 
     if (toolCalls.length > 0) {
       return { type: "tool_calls", toolCalls };

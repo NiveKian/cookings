@@ -106,12 +106,16 @@ export class GptAdapter implements LLMPort {
       await sleep(esperaMs);
     }
 
-    if (!resp!.ok) {
-      const detalhe = await resp!.text();
-      throw new Error(`OpenAI API respondeu ${resp!.status}: ${detalhe}`);
+    if (!resp) {
+      throw new Error("OpenAI API: nenhuma resposta obtida após as tentativas.");
     }
 
-    const data = await resp!.json();
+    if (!resp.ok) {
+      const detalhe = await resp.text();
+      throw new Error(`OpenAI API respondeu ${resp.status}: ${detalhe}`);
+    }
+
+    const data = await resp.json();
     const message = data?.choices?.[0]?.message ?? {};
 
     const toolCalls: LLMToolCall[] = (message.tool_calls ?? []).map((tc: OpenAIToolCall) => ({

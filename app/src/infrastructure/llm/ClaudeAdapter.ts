@@ -112,12 +112,16 @@ export class ClaudeAdapter implements LLMPort {
       await sleep(esperaMs);
     }
 
-    if (!resp!.ok) {
-      const detalhe = await resp!.text();
-      throw new Error(`Claude API respondeu ${resp!.status}: ${detalhe}`);
+    if (!resp) {
+      throw new Error("Claude API: nenhuma resposta obtida após as tentativas.");
     }
 
-    const data = await resp!.json();
+    if (!resp.ok) {
+      const detalhe = await resp.text();
+      throw new Error(`Claude API respondeu ${resp.status}: ${detalhe}`);
+    }
+
+    const data = await resp.json();
     const blocks: ClaudeContentBlock[] = data.content ?? [];
 
     const toolCalls: LLMToolCall[] = blocks

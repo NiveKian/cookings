@@ -15,10 +15,10 @@ export interface LLMToolCall {
   name: string;
   arguments: Record<string, unknown>;
   /**
- * Exclusivo do Gemini 3.x: assinatura opaca do estado de raciocínio do
- * modelo, que precisa ser devolvida sem alteração na próxima chamada.
- * Outros provedores (Claude, GPT) ignoram este campo.
- */
+   * Exclusivo do Gemini 3.x: assinatura opaca do estado de raciocínio do
+   * modelo, que precisa ser devolvida sem alteração na próxima chamada.
+   * Outros provedores (Claude, GPT) ignoram este campo.
+   */
   thoughtSignature?: string;
 }
 
@@ -46,11 +46,4 @@ export interface LLMPort {
     turns: ConversationTurn[];
     tools: ToolDefinition[];
   }): Promise<LLMTurnResult>;
-}
-
-export class ModelUnavailableError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "ModelUnavailableError";
-  }
 }
