@@ -51,7 +51,7 @@ matriculas.matriculas   receitas.receitas ──1:N── receita_ingredientes �
 matriculas.alunos
 ```
 
-O DDL completo (criação de schemas, tabelas, constraints e tipos) está documentado na seção **7 — "Banco de Dados e Modelagem de Dados"** do [GUIA_LLM.md](./GUIA_LLM.md#7-banco-de-dados-e-modelagem-de-dados), e já está implementado, junto com dados de exemplo, em `services/db/init/001_seed.sql`.
+O DDL completo (criação de schemas, tabelas, constraints e tipos) está documentado na seção **7 — "Banco de Dados e Modelagem de Dados"** do [Guide.md.md](./Guide.md.md#7-banco-de-dados-e-modelagem-de-dados), e já está implementado, junto com dados de exemplo, em `services/db/init/001_seed.sql`.
 
 ---
 
@@ -174,7 +174,7 @@ cookings/
 │   ├── Dockerfile
 │   └── .env.example
 │
-├── GUIA_LLM.md
+├── Guide.md.md
 └── README.md
 ```
 
@@ -182,5 +182,5 @@ cookings/
 
 ## Documentação Adicional
 
-- **[GUIA_LLM.md](./GUIA_LLM.md)** — guia de orientação com contexto arquitetural completo, decisões técnicas e convenções (recomendado para quem for dar manutenção ao projeto com apoio de uma IA).
+- **[Guide.md](./Guide.md)** — guia de orientação com contexto arquitetural completo, decisões técnicas e convenções (recomendado para quem for dar manutenção ao projeto com apoio de uma IA).
 - Cada subpasta (`services/`, `mcp/`, `app/`) deve conter seu próprio `README.md` com instruções específicas de execução isolada.
