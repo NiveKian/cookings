@@ -1,0 +1,27 @@
+version: "3.9"
+
+# Mesma rede externa de services/ e mcp/. Os hostnames "mcp_cursos",
+# "mcp_matriculas" e "mcp_receitas" (usados pelo backend, no .env) só
+# resolvem porque os 3 estão nesta mesma rede.
+networks:
+  default:
+    name: cookings-network
+    external: true
+
+services:
+  app:
+    build:
+      context: .
+      # docker compose lê automaticamente o arquivo ".env" desta mesma
+      # pasta para substituir estas variáveis (nenhuma configuração extra
+      # necessária) — por isso os VITE_* também precisam estar em ./.env.
+      args:
+        VITE_SERVICE_CURSOS_URL: ${VITE_SERVICE_CURSOS_URL}
+        VITE_SERVICE_MATRICULAS_URL: ${VITE_SERVICE_MATRICULAS_URL}
+        VITE_SERVICE_RECEITAS_URL: ${VITE_SERVICE_RECEITAS_URL}
+    container_name: cookings_app
+    restart: unless-stopped
+    env_file:
+      - ./.env
+    ports:
+      - "3000:3000"

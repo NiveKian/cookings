@@ -1,0 +1,103 @@
+import type {
+  ConversationTurn,
+  LLMPort,
+  LLMToolCall,
+  LLMTurnResult,
+  ToolDefinition,
+} from "../../domain/ports/LLMPort";
+
+// Adapter para a OpenAI Chat Completions API (GPT), via fetch direto.
+// Implementa LLMPort — para trocar de provedor, ver
+// infrastructure/llm/llmFactory.ts.
+
+interface OpenAIToolCall {
+  id: string;
+  type: "function";
+  function: { name: string; arguments: string };
+}
+
+interface OpenAIMessage {
+  role: "system" | "user" | "assistant" | "tool";
+  content?: string | null;
+  tool_calls?: OpenAIToolCall[];
+  tool_call_id?: string;
+}
+
+function turnsToOpenAIMessages(systemPrompt: string, turns: ConversationTurn[]): OpenAIMessage[] {
+  const messages: OpenAIMessage[] = [{ role: "system", content: systemPrompt }];
+
+  for (const turn of turns) {
+    if (turn.role === "user") {
+      messages.push({ role: "user", content: turn.content });
+    } else if (turn.role === "assistant") {
+      messages.push({ role: "assistant", content: turn.content });
+    } else if (turn.role === "assistant_tool_calls") {
+      messages.push({
+        role: "assistant",
+        content: null,
+        tool_calls: turn.toolCalls.map((tc) => ({
+          id: tc.id,
+          type: "function",
+          function: { name: tc.name, arguments: JSON.stringify(tc.arguments) },
+        })),
+      });
+    } else if (turn.role === "tool_results") {
+      for (const r of turn.results) {
+        messages.push({ role: "tool", tool_call_id: r.toolCallId, content: JSON.stringify(r.result) });
+      }
+    }
+  }
+
+  return messages;
+}
+
+export class GptAdapter implements LLMPort {
+  readonly providerName = "gpt";
+
+  constructor(
+    private readonly apiKey: string,
+    private readonly model: string = "gpt-4o-mini"
+  ) {}
+
+  async converse(params: {
+    systemPrompt: string;
+    turns: ConversationTurn[];
+    tools: ToolDefinition[];
+  }): Promise<LLMTurnResult> {
+    const resp = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${this.apiKey}`,
+      },
+      body: JSON.stringify({
+        model: this.model,
+        messages: turnsToOpenAIMessages(params.systemPrompt, params.turns),
+        tools: params.tools.map((t) => ({
+          type: "function",
+          function: { name: t.name, description: t.description, parameters: t.inputSchema },
+        })),
+      }),
+    });
+
+    if (!resp.ok) {
+      const detalhe = await resp.text();
+      throw new Error(`OpenAI API respondeu ${resp.status}: ${detalhe}`);
+    }
+
+    const data = await resp.json();
+    const message = data?.choices?.[0]?.message ?? {};
+
+    const toolCalls: LLMToolCall[] = (message.tool_calls ?? []).map((tc: OpenAIToolCall) => ({
+      id: tc.id,
+      name: tc.function.name,
+      arguments: JSON.parse(tc.function.arguments || "{}"),
+    }));
+
+    if (toolCalls.length > 0) {
+      return { type: "tool_calls", toolCalls };
+    }
+
+    return { type: "text", text: message.content || "(sem resposta)" };
+  }
+}
