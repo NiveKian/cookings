@@ -86,21 +86,6 @@ curl -X POST http://localhost:3000/api/chat -H "Content-Type: application/json" 
 
 Qualquer outra mensagem recebe apenas um eco de texto (sem chamar tools).
 
-## O Que Já Foi Validado
-
-- **Typecheck limpo** (`bun run typecheck`) e **build de produção do Vite** funcionando, com as URLs `VITE_SERVICE_*` corretamente embutidas no bundle estático (checado via `grep` no arquivo gerado).
-- **Modo desenvolvimento**: Vite dev server sobe, compila `src/main.tsx` sob demanda, e o proxy `/api/*` → backend (porta 3000) funciona.
-- **Modo produção**: `server.ts` serve `dist/index.html`, os assets estáticos (JS/CSS) e o fallback de SPA para rotas desconhecidas — tudo convivendo com as rotas `/api/*` no mesmo processo Hono.
-- **`POST /api/chat` testado de ponta a ponta com `LLM_PROVIDER=mock`**, provando a cadeia completa: backend → `sendChatMessage` (caso de uso) → `LLMPort` → loop de tool-calling → `McpToolsAdapter` → os 3 servidores MCP reais → os `service_*` reais → Postgres real → resposta de volta. Testado com tools de cada um dos 3 domínios (cursos, matrículas, receitas com `JOIN` de ingredientes) na mesma sessão do backend, tool inexistente (erro tratado) e validação Zod do payload (`400` em mensagens vazias).
-- **Bug real encontrado e corrigido durante o teste**: o `McpToolsAdapter` concatenava todos os blocos de conteúdo MCP antes de fazer `JSON.parse`, o que quebrava para tools que retornam listas (cada item da lista vem como um bloco MCP separado, não um array em um bloco só). Corrigido para parsear bloco a bloco e agregar em array quando há mais de um item.
-- A aba **Informações** usa exatamente os mesmos endpoints REST dos `service_*` que já foram validados exaustivamente via `curl` na etapa de construção de `services/` — o `ServicesHttpAdapter` é um `fetch` direto para eles, sem lógica adicional.
-
-## O Que NÃO Foi Validado
-
-- **Chamadas reais a Gemini, Claude ou GPT** — não há chaves de API disponíveis neste ambiente de desenvolvimento. Os 3 adapters foram implementados seguindo a especificação pública de cada API (formato de mensagens, tool-calling/function-calling), mas **recomenda-se testar cada um com uma chave real antes de considerar essa etapa 100% encerrada.** O `MockAdapter` prova que a orquestração ao redor deles (loop de tool-calling, execução MCP, tratamento de erro) funciona corretamente — o que resta validar é especificamente o parsing da resposta de cada API.
-- **Build da imagem Docker e `docker-compose.yml`** — mesmo motivo dos outros dois subprojetos: sem Docker disponível neste sandbox. O `Dockerfile` é multi-stage (build do Vite com as `VITE_*` como build args, depois só o runtime Bun + `dist/` + backend) — revalide com `docker compose up -d --build`.
-- **Renderização real no navegador** (React montando, cliques, etc.) — sem um navegador neste ambiente. O que foi validado é: o bundle compila sem erros, o HTML/JS/CSS são servidos corretamente pelo backend, e todas as chamadas de rede que os componentes fazem (`fetch` para os services, `fetch` para `/api/chat`) foram testadas via `curl` batendo exatamente nos mesmos endpoints.
-
 ## Estrutura
 
 ```

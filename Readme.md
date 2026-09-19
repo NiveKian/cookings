@@ -17,7 +17,7 @@ cookings/
 
 Os **3 subprojetos** (`services`, `mcp` e `app`) têm cada um seu próprio `docker-compose.yml` e sobem na mesma rede Docker externa `cookings-network`, podendo ser executados de forma independente ou em conjunto.
 
-Para uma explicação completa da arquitetura, decisões técnicas e convenções, veja **[GUIA_LLM.md](./GUIA_LLM.md)**.
+Para uma explicação completa da arquitetura, decisões técnicas e convenções, veja **[Guide.md](./Guide.md)**.
 
 ---
 

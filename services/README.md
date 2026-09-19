@@ -79,18 +79,6 @@ curl http://localhost:3003/receitas/60000000-0000-0000-0000-000000000001   # já
 curl http://localhost:3003/ingredientes
 ```
 
-## O Que Já Foi Validado
-
-Todos os 3 serviços foram testados manualmente ponta a ponta contra um Postgres real (schemas, seed e todas as rotas), cobrindo:
-- CRUD completo de cursos e aulas.
-- Cadastro de alunos (com bloqueio de e-mail duplicado, `409`) e matrículas (com validação de aluno existente, `404`).
-- Regra de negócio de conclusão automática (`progressoPercentual = 100` → `status: "concluida"` + `certificadoEmitido: true`).
-- Catálogo de ingredientes e vínculo receita↔ingrediente, incluindo o `GET /receitas/:id` retornando a lista de ingredientes já unida (`JOIN`).
-- Erros de validação (Zod) padronizados em `{ "error": "...", "details": [...] }` com status `400`.
-- Casos de recurso não encontrado (`404`) e conflito (`409`).
-
-**Não validado neste ambiente de desenvolvimento** (sem Docker disponível durante a construção): o build real das imagens Docker e a subida via `docker-compose.yml`. Os `Dockerfile`s e o `docker-compose.yml` seguem práticas padrão (imagem oficial `oven/bun:1`, cache de `bun.lock`, healthcheck do Postgres, `depends_on` com `condition: service_healthy`), mas **recomenda-se rodar `docker compose up -d --build` e confirmar a subida dos 4 containers antes de considerar esta etapa 100% encerrada.**
-
 ## Estrutura
 
 ```

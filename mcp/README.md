@@ -55,24 +55,6 @@ O primeiro argumento é a URL do servidor MCP (`/mcp` no final), o segundo é um
 
 Alternativa gráfica: [MCP Inspector](https://github.com/modelcontextprotocol/inspector) (`npx @modelcontextprotocol/inspector`), apontando para a URL `http://localhost:<porta>/mcp` com transporte "Streamable HTTP".
 
-## O Que Já Foi Validado
-
-Os 3 servidores foram testados de ponta a ponta com um **cliente MCP real** (`mcp.client.streamable_http` + `ClientSession`, o mesmo mecanismo que uma IA usaria), contra os `service_*` reais rodando sobre um Postgres real — não apenas testes HTTP diretos aos services. Isso cobre a cadeia completa: **cliente MCP → servidor MCP (streamable-http) → httpx → service_* → Postgres**.
-
-Casos cobertos:
-- `mcp_cursos`: listagem com e sem filtro (`categoria`), detalhe de curso, listagem de aulas, e o caso de erro (curso inexistente → `{"erro": true, "status": 404, ...}`).
-- `mcp_matriculas`: listagem de alunos com filtro local por nome, cadastro de aluno, matrícula (incluindo erro com aluno inexistente), e atualização de progresso — confirmando que a regra de conclusão automática (100% → `concluida` + certificado) se propaga corretamente do `service_matriculas` até a resposta da tool MCP.
-- `mcp_receitas`: listagem e detalhe de receita **com o `JOIN` de ingredientes** (incluindo a observação de substituição vinda do seed), listagem do catálogo de ingredientes, e o caso de erro (receita inexistente → 404).
-
-**Não validado neste ambiente** (sem Docker disponível durante a construção): o build real das imagens Docker e a subida via `docker-compose.yml`, e a integração com um cliente de IA de verdade (Gemini/Claude/GPT fazendo tool calling contra estes servidores) — isso só poderá ser validado quando o `app` (pasta ainda não construída) existir. Os `Dockerfile`s seguem a imagem oficial `ghcr.io/astral-sh/uv:python3.12-bookworm-slim` com `uv sync --frozen` a partir do `uv.lock` — **recomenda-se rodar `docker compose up -d --build` e revalidar com o `test_client.py` (ajustando a URL para a porta publicada) antes de considerar esta etapa 100% encerrada.**
-
-## O Que NÃO Fazer Aqui (lembrete)
-
-- Não acessar o banco de dados diretamente destes servidores — sempre passar pelo `service_*` via HTTP.
-- Não usar transporte `stdio`.
-- Não adicionar mais arquivos além de `server.py` + `pyproject.toml` + `uv.lock` + `Dockerfile` + `.env.example` por servidor, salvo necessidade real.
-- Não validar `curso_id`/`aula_id` cruzando com `service_cursos` nas tools de `mcp_receitas`/`mcp_matriculas` — mantido simples de propósito, igual ao `services/`.
-
 ## Estrutura
 
 ```
