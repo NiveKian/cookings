@@ -14,6 +14,12 @@ export interface LLMToolCall {
   id: string;
   name: string;
   arguments: Record<string, unknown>;
+  /**
+ * Exclusivo do Gemini 3.x: assinatura opaca do estado de raciocínio do
+ * modelo, que precisa ser devolvida sem alteração na próxima chamada.
+ * Outros provedores (Claude, GPT) ignoram este campo.
+ */
+  thoughtSignature?: string;
 }
 
 export type LLMTurnResult =
