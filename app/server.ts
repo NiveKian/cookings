@@ -16,10 +16,16 @@ app.use("*", cors());
 
 const llm = createLLMAdapter();
 
+function mcpUrl(base: string, fallback: string): string {
+  const isLocal = process.env.APP_ENV === "local";
+  const key = isLocal ? `${base}_DEV` : base;
+  return process.env[key] || fallback;
+}
+
 const mcpTools = new McpToolsAdapter([
-  { name: "cursos", url: process.env.MCP_CURSOS_URL || "http://localhost:8001/mcp" },
-  { name: "matriculas", url: process.env.MCP_MATRICULAS_URL || "http://localhost:8002/mcp" },
-  { name: "receitas", url: process.env.MCP_RECEITAS_URL || "http://localhost:8003/mcp" },
+  { name: "cursos", url: mcpUrl("MCP_CURSOS_URL", "http://localhost:8001/mcp") },
+  { name: "matriculas", url: mcpUrl("MCP_MATRICULAS_URL", "http://localhost:8002/mcp") },
+  { name: "receitas", url: mcpUrl("MCP_RECEITAS_URL", "http://localhost:8003/mcp") },
 ]);
 
 // -----------------------------------------------------------------------
