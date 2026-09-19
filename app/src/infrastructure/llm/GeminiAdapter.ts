@@ -15,8 +15,8 @@ import type {
 
 interface GeminiPart {
   text?: string;
-  functionCall?: { name: string; args: Record<string, unknown> };
-  functionResponse?: { name: string; response: unknown };
+  functionCall?: { id?: string; name: string; args: Record<string, unknown> };
+  functionResponse?: { id?: string; name: string; response: unknown };
 }
 
 interface GeminiContent {
@@ -49,12 +49,12 @@ function turnsToGeminiContents(turns: ConversationTurn[]): GeminiContent[] {
     } else if (turn.role === "assistant_tool_calls") {
       contents.push({
         role: "model",
-        parts: turn.toolCalls.map((tc) => ({ functionCall: { name: tc.name, args: tc.arguments } })),
+        parts: turn.toolCalls.map((tc) => ({ functionCall: { id: tc.id, name: tc.name, args: tc.arguments } })),
       });
     } else if (turn.role === "tool_results") {
       contents.push({
         role: "user",
-        parts: turn.results.map((r) => ({ functionResponse: { name: r.name, response: r.result } })),
+        parts: turn.results.map((r) => ({ functionResponse: { id: r.toolCallId, name: r.name, response: r.result } })),
       });
     }
   }
@@ -67,7 +67,7 @@ export class GeminiAdapter implements LLMPort {
 
   constructor(
     private readonly apiKey: string,
-    private readonly model: string = "gemini-2.0-flash"
+    private readonly model: string = "gemini-flash-latest"
   ) {}
 
   async converse(params: {
@@ -111,7 +111,7 @@ export class GeminiAdapter implements LLMPort {
     const toolCalls: LLMToolCall[] = parts
       .filter((p) => p.functionCall)
       .map((p, i) => ({
-        id: `gemini-call-${Date.now()}-${i}`,
+        id: p.functionCall!.id ?? `gemini-call-${Date.now()}-${i}`,
         name: p.functionCall!.name,
         arguments: p.functionCall!.args ?? {},
       }));
