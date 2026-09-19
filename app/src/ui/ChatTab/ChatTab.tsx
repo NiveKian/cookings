@@ -1,10 +1,18 @@
 import { useState } from "react";
 import type { ChatMessage } from "../../domain/entities";
 
-export default function ChatTab() {
-  const [mensagens, setMensagens] = useState<ChatMessage[]>([
-    { role: "assistant", content: "Oi! Posso ajudar com cursos, matrículas e receitas do Cookings. O que você quer saber?" },
-  ]);
+interface ChatTabProps {
+  // "mensagens" e "setMensagens" vêm do App.tsx (lifted state) — assim o
+  // histórico sobrevive quando o usuário troca para a aba "Informações"
+  // e volta, já que o App nunca desmonta, só o que está dentro dele.
+  mensagens: ChatMessage[];
+  setMensagens: React.Dispatch<React.SetStateAction<ChatMessage[]>>;
+}
+
+export default function ChatTab({ mensagens, setMensagens }: ChatTabProps) {
+  // Estes 3 continuam locais: são só estado de UI momentâneo (o que está
+  // digitado agora, se está carregando agora) — tanto faz se resetam ao
+  // trocar de aba, então não precisam subir pro App.
   const [entrada, setEntrada] = useState("");
   const [enviando, setEnviando] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
