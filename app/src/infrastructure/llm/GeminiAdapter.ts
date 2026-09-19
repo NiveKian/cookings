@@ -17,6 +17,7 @@ interface GeminiPart {
   text?: string;
   functionCall?: { id?: string; name: string; args: Record<string, unknown> };
   functionResponse?: { id?: string; name: string; response: unknown };
+  thoughtSignature?: string;
 }
 
 interface GeminiContent {
@@ -68,9 +69,14 @@ function turnsToGeminiContents(turns: ConversationTurn[]): GeminiContent[] {
     } else if (turn.role === "assistant") {
       contents.push({ role: "model", parts: [{ text: turn.content }] });
     } else if (turn.role === "assistant_tool_calls") {
+      // If your ConversationTurn includes the thoughtSignature (recommended), pass it here:
       contents.push({
         role: "model",
-        parts: turn.toolCalls.map((tc) => ({ functionCall: { id: tc.id, name: tc.name, args: tc.arguments } })),
+        parts: turn.toolCalls.map((tc, index) => ({
+          // If you attach thoughtSignature to your domain tool call object:
+          thoughtSignature: (tc as any).thoughtSignature,
+          functionCall: { id: tc.id, name: tc.name, args: tc.arguments },
+        })),
       });
     } else if (turn.role === "tool_results") {
       contents.push({
@@ -91,7 +97,7 @@ export class GeminiAdapter implements LLMPort {
   constructor(
     private readonly apiKey: string,
     private readonly model: string = "gemini-flash-latest"
-  ) {}
+  ) { }
 
   async converse(params: {
     systemPrompt: string;
@@ -106,14 +112,14 @@ export class GeminiAdapter implements LLMPort {
       tools:
         params.tools.length > 0
           ? [
-              {
-                functionDeclarations: params.tools.map((t) => ({
-                  name: t.name,
-                  description: t.description,
-                  parameters: sanitizeSchema(t.inputSchema),
-                })),
-              },
-            ]
+            {
+              functionDeclarations: params.tools.map((t) => ({
+                name: t.name,
+                description: t.description,
+                parameters: sanitizeSchema(t.inputSchema),
+              })),
+            },
+          ]
           : undefined,
     };
 
@@ -153,7 +159,8 @@ export class GeminiAdapter implements LLMPort {
         id: p.functionCall!.id ?? `gemini-call-${Date.now()}-${i}`,
         name: p.functionCall!.name,
         arguments: p.functionCall!.args ?? {},
-      }));
+        thoughtSignature: p.thoughtSignature ?? (p as any).thought_signature,
+      } as any));
 
     if (toolCalls.length > 0) {
       return { type: "tool_calls", toolCalls };
