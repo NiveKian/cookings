@@ -17,7 +17,7 @@ services:
     env_file:
       - ./mcp_cursos/.env
     ports:
-      - "8001:8001"
+      - "8001:8000"
 
   mcp_matriculas:
     build: ./mcp_matriculas
@@ -26,7 +26,7 @@ services:
     env_file:
       - ./mcp_matriculas/.env
     ports:
-      - "8002:8002"
+      - "8002:8000"
 
   mcp_receitas:
     build: ./mcp_receitas
@@ -35,4 +35,4 @@ services:
     env_file:
       - ./mcp_receitas/.env
     ports:
-      - "8003:8003"
+      - "8003:8000"
