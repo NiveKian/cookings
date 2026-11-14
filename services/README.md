@@ -89,6 +89,34 @@ curl http://localhost:3003/receitas/60000000-0000-0000-0000-000000000001   # já
 curl http://localhost:3003/ingredientes
 ```
 
+### Endpoints novos de `service_receitas` (Fase 1)
+
+Exigem o seed novo (colunas `alergenos` e `origem`, tabela `substituicoes`): em volume antigo, recrie com `docker compose down -v` (apaga todos os dados).
+
+| Endpoint | O que faz |
+|---|---|
+| `GET /receitas?ingrediente=...&modo=todos\|qualquer` | Filtra por nomes de ingredientes (sem acento/caixa). `ingrediente` repetível ou separado por vírgula. `modo` padrão `qualquer`; sem `ingrediente`, `modo` é ignorado. Cada receita traz `origem` (`curso` ou `ia`). |
+| `GET /ingredientes`, `GET /receitas/:id` | Cada ingrediente traz `alergenos` (`gluten`, `lactose`, `ovo`, `soja`, `amendoim`, `castanhas`, `peixe`, `crustaceos`). |
+| `POST /ingredientes` | Aceita `alergenos` opcional (padrão `[]`). 409 se o nome já existe. |
+| `GET /ingredientes/:id/substituicoes` | Substituições conhecidas (lista vazia se não houver). 404 se o ingrediente não existe. |
+| `POST /receitas` | `cursoId` opcional e `origem` (`curso` padrão, ou `ia`). Com `origem` `curso`, `cursoId` é obrigatório (400). |
+
+```bash
+# Receitas que usam ovos E açúcar (sem acento/caixa; -G + --data-urlencode cuida da codificação)
+curl -G http://localhost:3003/receitas --data-urlencode "ingrediente=Ovos,Açúcar" --data-urlencode "modo=todos"
+# Parâmetro repetido, modo padrão (qualquer um)
+curl -G http://localhost:3003/receitas --data-urlencode "ingrediente=manteiga" --data-urlencode "ingrediente=leite"
+
+# Substituições da manteiga
+curl http://localhost:3003/ingredientes/50000000-0000-0000-0000-000000000003/substituicoes
+
+# Receita gerada por IA, sem curso
+curl -X POST http://localhost:3003/receitas -H "Content-Type: application/json" \
+  -d '{"nome":"Omelete de ervas","modoPreparo":"Bata os ovos, tempere e frite em fogo médio.","tempoPreparoMinutos":10,"porcoes":2,"origem":"ia"}'
+```
+
+Listagens (`/cursos`, `/alunos`, `/matriculas`, `/receitas`, `/ingredientes`) têm `limit` padrão 50 e máximo 200, com ordem estável (necessária para paginar com `offset`).
+
 ## Estrutura
 
 ```

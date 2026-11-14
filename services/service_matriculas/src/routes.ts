@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { zValidator as zValidatorBase } from "@hono/zod-validator";
 import type { ZodSchema } from "zod";
 import { z } from "zod";
-import { eq, and } from "drizzle-orm";
+import { eq, and, asc } from "drizzle-orm";
 import { db } from "./db";
 import { alunos, matriculas } from "./schema";
 
@@ -63,7 +63,7 @@ const progressoUpdateSchema = z.object({
 
 routes.get("/alunos", zValidator("query", listQuerySchema), async (c) => {
   const { limit, offset } = c.req.valid("query");
-  const resultado = await db.select().from(alunos).limit(limit).offset(offset);
+  const resultado = await db.select().from(alunos).orderBy(asc(alunos.id)).limit(limit).offset(offset); // ordem estável para paginar
   return c.json(resultado);
 });
 
@@ -101,6 +101,7 @@ routes.get("/matriculas", zValidator("query", matriculaListQuerySchema), async (
     .select()
     .from(matriculas)
     .where(condicoes.length ? and(...condicoes) : undefined)
+    .orderBy(asc(matriculas.id)) // ordem estável para paginar
     .limit(limit)
     .offset(offset);
 
