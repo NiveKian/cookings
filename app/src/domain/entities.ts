@@ -74,7 +74,31 @@ export interface Ingrediente {
 
 export type ChatRole = "user" | "assistant";
 
+/** Metadados do cache semântico; ausente em mensagens antigas e na saudação. */
+export interface ChatCacheMeta {
+  usado: boolean;
+  motivo: string;
+  similaridade?: number;
+}
+
+/** Recorte do juiz para a UI; ausente em mensagens antigas e na saudação. */
+export interface ChatJudgeMeta {
+  status: "ok" | "unavailable";
+  veredito: "aprovar" | "revisar" | "reprovar";
+  notas: {
+    fidelidade: number;
+    coerencia: number;
+    seguranca: number;
+    relevancia: number;
+    clareza: number;
+  };
+  problemas?: Array<{ criterio: string; descricao: string; bloqueante: boolean }>;
+}
+
 export interface ChatMessage {
   role: ChatRole;
   content: string;
+  /** Só a mensagem do assistente depois do POST /api/chat. */
+  cache?: ChatCacheMeta;
+  judge?: ChatJudgeMeta;
 }

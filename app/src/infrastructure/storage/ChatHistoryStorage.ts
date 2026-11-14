@@ -1,4 +1,4 @@
-import type { ChatMessage } from "../../domain/entities";
+import type { ChatCacheMeta, ChatJudgeMeta, ChatMessage } from "../../domain/entities";
 
 // Persistência opcional do histórico do chat em localStorage. Projetada
 // para NUNCA quebrar o chat se o navegador não suportar/permitir
@@ -70,12 +70,80 @@ export function loadChatHistory(): ChatMessage[] | null {
     if (!raw) return null;
 
     const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return null;
-
-    return parsed as ChatMessage[];
+    return parseChatHistory(parsed);
   } catch {
     return null;
   }
+}
+
+/**
+ * Aceita o formato antigo `{role, content}` e o novo com cache/judge opcionais.
+ * Item sem role/content válido é ignorado; array vazio ou lixo vira null.
+ */
+export function parseChatHistory(raw: unknown): ChatMessage[] | null {
+  if (!Array.isArray(raw)) return null;
+
+  const mensagens: ChatMessage[] = [];
+  for (const item of raw) {
+    const msg = parseMensagem(item);
+    if (msg) mensagens.push(msg);
+  }
+  return mensagens.length > 0 ? mensagens : null;
+}
+
+function parseMensagem(item: unknown): ChatMessage | null {
+  if (!item || typeof item !== "object") return null;
+  const o = item as Record<string, unknown>;
+  if (o.role !== "user" && o.role !== "assistant") return null;
+  if (typeof o.content !== "string") return null;
+
+  const msg: ChatMessage = { role: o.role, content: o.content };
+  const cache = parseCache(o.cache);
+  if (cache) msg.cache = cache;
+  const judge = parseJudge(o.judge);
+  if (judge) msg.judge = judge;
+  return msg;
+}
+
+function parseCache(raw: unknown): ChatCacheMeta | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+  const o = raw as Record<string, unknown>;
+  if (typeof o.usado !== "boolean" || typeof o.motivo !== "string") return undefined;
+  const cache: ChatCacheMeta = { usado: o.usado, motivo: o.motivo };
+  if (typeof o.similaridade === "number" && Number.isFinite(o.similaridade)) {
+    cache.similaridade = o.similaridade;
+  }
+  return cache;
+}
+
+function parseJudge(raw: unknown): ChatJudgeMeta | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+  const o = raw as Record<string, unknown>;
+  if (o.status !== "ok" && o.status !== "unavailable") return undefined;
+  if (o.veredito !== "aprovar" && o.veredito !== "revisar" && o.veredito !== "reprovar") {
+    return undefined;
+  }
+  const notas = parseNotas(o.notas);
+  if (!notas) return undefined;
+  return { status: o.status, veredito: o.veredito, notas };
+}
+
+function parseNotas(raw: unknown): ChatJudgeMeta["notas"] | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+  const o = raw as Record<string, unknown>;
+  const campos = ["fidelidade", "coerencia", "seguranca", "relevancia", "clareza"] as const;
+  const notas: ChatJudgeMeta["notas"] = {
+    fidelidade: 0,
+    coerencia: 0,
+    seguranca: 0,
+    relevancia: 0,
+    clareza: 0,
+  };
+  for (const c of campos) {
+    if (typeof o[c] !== "number" || !Number.isFinite(o[c])) return undefined;
+    notas[c] = o[c];
+  }
+  return notas;
 }
 
 /** Salva o histórico. Falha silenciosamente (nunca quebra o chat por causa disso). */
