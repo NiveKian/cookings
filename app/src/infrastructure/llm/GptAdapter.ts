@@ -5,6 +5,8 @@ import type {
   LLMTurnResult,
   ToolDefinition,
 } from "../../domain/ports/LLMPort";
+import { ModelUnavailableError } from "../../domain/ports/LLMPort";
+import { parseModelList } from "./modelList";
 
 // Adapter para a OpenAI Chat Completions API (GPT), via fetch direto.
 // Implementa LLMPort — para trocar de provedor, ver
@@ -60,21 +62,55 @@ function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+const MODELO_PADRAO = "gpt-4o-mini";
+
 export class GptAdapter implements LLMPort {
   readonly providerName = "gpt";
+  private readonly models: string[];
 
-  constructor(
-    private readonly apiKey: string,
-    private readonly model: string = "gpt-4o-mini"
-  ) {}
+  /**
+   * @param models um modelo, ou vários separados por vírgula (ex.:
+   * "modelo-principal,modelo-reserva"). Os reservas só são usados se o
+   * anterior estiver indisponível (404) — ver converse().
+   */
+  constructor(private readonly apiKey: string, models?: string) {
+    this.models = parseModelList(models, MODELO_PADRAO);
+  }
 
   async converse(params: {
     systemPrompt: string;
     turns: ConversationTurn[];
     tools: ToolDefinition[];
   }): Promise<LLMTurnResult> {
+    let ultimoErro: ModelUnavailableError | null = null;
+
+    for (const model of this.models) {
+      try {
+        return await this.callModel(model, params);
+      } catch (err) {
+        if (err instanceof ModelUnavailableError) {
+          console.warn(`[gpt] ${err.message} Tentando o próximo modelo da lista...`);
+          ultimoErro = err;
+          continue;
+        }
+        // Qualquer outro erro (auth, rate limit esgotado, rede, payload)
+        // não se resolve trocando de modelo — propaga.
+        throw err;
+      }
+    }
+
+    throw new Error(
+      `OpenAI API: nenhum dos modelos configurados está disponível (${this.models.join(", ")}). ` +
+        `Último erro: ${ultimoErro?.message ?? "desconhecido"}`
+    );
+  }
+
+  private async callModel(
+    model: string,
+    params: { systemPrompt: string; turns: ConversationTurn[]; tools: ToolDefinition[] }
+  ): Promise<LLMTurnResult> {
     const requestBody = JSON.stringify({
-      model: this.model,
+      model,
       messages: turnsToOpenAIMessages(params.systemPrompt, params.turns),
       tools: params.tools.map((t) => ({
         type: "function",
@@ -108,6 +144,13 @@ export class GptAdapter implements LLMPort {
 
     if (!resp) {
       throw new Error("OpenAI API: nenhuma resposta obtida após as tentativas.");
+    }
+
+    // 404 (model_not_found) = modelo inexistente, aposentado ou sem acesso
+    // para esta chave: dá para tentar outro modelo da lista.
+    if (resp.status === 404) {
+      const detalhe = await resp.text();
+      throw new ModelUnavailableError(`Modelo "${model}" indisponível (404): ${detalhe}`);
     }
 
     if (!resp.ok) {

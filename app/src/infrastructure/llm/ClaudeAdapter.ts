@@ -5,6 +5,8 @@ import type {
   LLMTurnResult,
   ToolDefinition,
 } from "../../domain/ports/LLMPort";
+import { ModelUnavailableError } from "../../domain/ports/LLMPort";
+import { parseModelList } from "./modelList";
 
 // Adapter para a Anthropic Messages API (Claude), via fetch direto.
 // Implementa LLMPort — para trocar de provedor, ver
@@ -62,21 +64,55 @@ function turnsToClaudeMessages(turns: ConversationTurn[]): ClaudeMessage[] {
   return messages;
 }
 
+const MODELO_PADRAO = "claude-sonnet-4-5";
+
 export class ClaudeAdapter implements LLMPort {
   readonly providerName = "claude";
+  private readonly models: string[];
 
-  constructor(
-    private readonly apiKey: string,
-    private readonly model: string = "claude-sonnet-4-5"
-  ) {}
+  /**
+   * @param models um modelo, ou vários separados por vírgula (ex.:
+   * "modelo-principal,modelo-reserva"). Os reservas só são usados se o
+   * anterior estiver indisponível (404) — ver converse().
+   */
+  constructor(private readonly apiKey: string, models?: string) {
+    this.models = parseModelList(models, MODELO_PADRAO);
+  }
 
   async converse(params: {
     systemPrompt: string;
     turns: ConversationTurn[];
     tools: ToolDefinition[];
   }): Promise<LLMTurnResult> {
+    let ultimoErro: ModelUnavailableError | null = null;
+
+    for (const model of this.models) {
+      try {
+        return await this.callModel(model, params);
+      } catch (err) {
+        if (err instanceof ModelUnavailableError) {
+          console.warn(`[claude] ${err.message} Tentando o próximo modelo da lista...`);
+          ultimoErro = err;
+          continue;
+        }
+        // Qualquer outro erro (auth, rate limit esgotado, rede, payload)
+        // não se resolve trocando de modelo — propaga.
+        throw err;
+      }
+    }
+
+    throw new Error(
+      `Claude API: nenhum dos modelos configurados está disponível (${this.models.join(", ")}). ` +
+        `Último erro: ${ultimoErro?.message ?? "desconhecido"}`
+    );
+  }
+
+  private async callModel(
+    model: string,
+    params: { systemPrompt: string; turns: ConversationTurn[]; tools: ToolDefinition[] }
+  ): Promise<LLMTurnResult> {
     const requestBody = JSON.stringify({
-      model: this.model,
+      model,
       max_tokens: 1024,
       system: params.systemPrompt,
       messages: turnsToClaudeMessages(params.turns),
@@ -114,6 +150,13 @@ export class ClaudeAdapter implements LLMPort {
 
     if (!resp) {
       throw new Error("Claude API: nenhuma resposta obtida após as tentativas.");
+    }
+
+    // 404 = modelo inexistente/aposentado (not_found_error): dá para tentar
+    // outro modelo da lista.
+    if (resp.status === 404) {
+      const detalhe = await resp.text();
+      throw new ModelUnavailableError(`Modelo "${model}" indisponível (404): ${detalhe}`);
     }
 
     if (!resp.ok) {

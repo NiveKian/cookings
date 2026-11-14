@@ -22,6 +22,21 @@ export interface LLMToolCall {
   thoughtSignature?: string;
 }
 
+/**
+ * Lançado por um adapter quando o provedor informa que o modelo pedido não
+ * existe, foi aposentado ou não está disponível para a chave usada (ex.:
+ * HTTP 404). Permite ao adapter tentar o próximo modelo da lista
+ * configurada no .env. NÃO deve ser usado para erros transitórios
+ * (429/503/529 — esses já têm retry próprio) nem para erros de
+ * autenticação (401/403), que nunca se resolvem trocando de modelo.
+ */
+export class ModelUnavailableError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ModelUnavailableError";
+  }
+}
+
 export type LLMTurnResult =
   | { type: "text"; text: string }
   | { type: "tool_calls"; toolCalls: LLMToolCall[] };
