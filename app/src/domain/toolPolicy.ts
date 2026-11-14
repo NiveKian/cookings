@@ -1,7 +1,8 @@
 // Fonte única da verdade sobre as tools MCP: quais alteram dados e a qual
 // domínio (servidor MCP) cada uma pertence. Os nomes vêm de mcp/*/server.py.
 // Ao criar uma tool nova no MCP, registre-a aqui.
-// Ainda não é usado pelo chat: a Fase 4 liga isto à confirmação de escrita.
+// Usado pelo cache (Fase 4): tools mutáveis invalidam o domínio; lookup/gravação
+// só com tools de leitura.
 
 export type ToolDomain = "cursos" | "matriculas" | "receitas";
 
