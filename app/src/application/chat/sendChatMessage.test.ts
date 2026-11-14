@@ -38,6 +38,14 @@ describe("sendChatMessage", () => {
 
     expect(chamadas).toEqual(["listar_ingredientes", "verificar_alergenos"]);
     expect(resultado.toolCallsExecuted).toEqual(["listar_ingredientes", "verificar_alergenos"]);
+    expect(resultado.evidencias).toEqual([
+      { tool: "listar_ingredientes", argumentos: {}, resultado: { ok: true, tool: "listar_ingredientes" } },
+      {
+        tool: "verificar_alergenos",
+        argumentos: { receita_id: "r1", alergenos: ["lactose"] },
+        resultado: { ok: true, tool: "verificar_alergenos" },
+      },
+    ]);
     expect(resultado.reply).toContain("Nome:");
     expect(resultado.reply).toContain("Alérgenos:");
     expect(resultado.reply).toContain("Fora do catálogo:");
@@ -53,6 +61,9 @@ describe("sendChatMessage", () => {
 
     expect(chamadas).toEqual(["listar_cursos"]);
     expect(resultado.toolCallsExecuted).toEqual(["listar_cursos"]);
+    expect(resultado.evidencias).toEqual([
+      { tool: "listar_cursos", argumentos: {}, resultado: { ok: true, tool: "listar_cursos" } },
+    ]);
     expect(resultado.reply).toContain("[mock]");
     expect(resultado.reply).toContain('Resultado de "listar_cursos"');
     expect(resultado.reply).not.toContain("Nome:");
