@@ -75,7 +75,7 @@ routes.get("/cursos", zValidator("query", cursoListQuerySchema), async (c) => {
     .select()
     .from(cursos)
     .where(condicoes.length ? and(...condicoes) : undefined)
-    .orderBy(desc(cursos.criadoEm))
+    .orderBy(desc(cursos.criadoEm), asc(cursos.id)) // id desempata linhas com o mesmo criado_em (paginação estável)
     .limit(limit)
     .offset(offset);
 
