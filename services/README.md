@@ -32,7 +32,17 @@ docker compose up -d --build
 docker compose logs -f
 ```
 
-Na primeira subida, o Postgres executa automaticamente `db/init/001_seed.sql`, criando os 3 schemas, as 7 tabelas e os dados de exemplo.
+Na primeira subida, o Postgres executa automaticamente `db/init/001_seed.sql`, criando os 3 schemas, as 8 tabelas e os dados de exemplo.
+
+### Resetar o banco (obrigatório sempre que o `001_seed.sql` mudar)
+
+O Postgres só executa os scripts de `db/init/` quando o volume de dados está **vazio**. Se você alterar o seed (ou o schema), a mudança **não** é reaplicada sozinha. Para recriar o banco do zero:
+
+```bash
+cd services
+docker compose down -v        # -v apaga o volume: TODOS os dados do banco, inclusive o que foi criado em uso
+docker compose up -d --build
+```
 
 ## Como Rodar (sem Docker, para desenvolvimento rápido)
 
