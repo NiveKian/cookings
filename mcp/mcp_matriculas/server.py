@@ -40,19 +40,48 @@ async def _request(method: str, path: str, **kwargs) -> dict | list:
             return {"erro": True, "status": None, "detalhe": f"Falha ao conectar ao service_matriculas: {exc}"}
 
 
+# Tamanho de página usado ao varrer listagens (máximo aceito pela API).
+TAMANHO_PAGINA = 200
+
+
+def _e_erro(resultado) -> bool:
+    """True se o resultado de `_request` é um erro padronizado."""
+    return isinstance(resultado, dict) and resultado.get("erro") is True
+
+
+async def _paginar(path: str, params: Optional[dict] = None) -> dict | list:
+    """Varre uma listagem com limit=200 e offset crescente, até a página vir
+    menor que 200. Propaga na hora o erro `{erro: true}` de qualquer página."""
+    itens: list = []
+    offset = 0
+    while True:
+        pagina = await _request(
+            "GET", path, params={**(params or {}), "limit": TAMANHO_PAGINA, "offset": offset}
+        )
+        if _e_erro(pagina):
+            return pagina
+        if not isinstance(pagina, list):
+            return {"erro": True, "status": None, "detalhe": f"Resposta inesperada de {path}: esperava uma lista."}
+        itens.extend(pagina)
+        if len(pagina) < TAMANHO_PAGINA:
+            return itens
+        offset += TAMANHO_PAGINA
+
+
 # ---------------------------------------------------------------------------
 # Tools — Alunos
 # ---------------------------------------------------------------------------
 
 @mcp.tool()
 async def listar_alunos(nome: Optional[str] = None) -> dict | list:
-    """Lista os alunos cadastrados no Cookings.
+    """Lista TODOS os alunos cadastrados no Cookings (percorre todas as páginas).
 
     Args:
         nome: se informado, filtra alunos cujo nome contém este texto
-            (busca feita localmente, pois o service não oferece filtro por nome).
+            (busca feita localmente sobre a lista completa, pois o service
+            não oferece filtro por nome).
     """
-    resultado = await _request("GET", "/alunos")
+    resultado = await _paginar("/alunos")
     if isinstance(resultado, list) and nome:
         alvo = nome.strip().lower()
         resultado = [a for a in resultado if alvo in a.get("nome", "").lower()]
@@ -82,14 +111,43 @@ async def cadastrar_aluno(nome: str, email: str) -> dict:
 
 @mcp.tool()
 async def listar_matriculas(aluno_id: Optional[str] = None, curso_id: Optional[str] = None) -> dict | list:
-    """Lista matrículas, opcionalmente filtrando por aluno e/ou curso.
+    """Lista TODAS as matrículas (percorre todas as páginas), opcionalmente
+    filtrando por aluno e/ou curso.
 
     Args:
         aluno_id: ID (UUID) do aluno para filtrar suas matrículas.
         curso_id: ID (UUID) do curso para filtrar quem está matriculado nele.
     """
     params = {k: v for k, v in {"alunoId": aluno_id, "cursoId": curso_id}.items() if v}
-    return await _request("GET", "/matriculas", params=params)
+    return await _paginar("/matriculas", params)
+
+
+@mcp.tool()
+async def resumo_progresso_aluno(aluno_id: str) -> dict:
+    """Resume o progresso de um aluno nos cursos em que está matriculado.
+
+    Retorna `{ alunoId, total, ativas, concluidas, canceladas, progressoMedio }`.
+    `progressoMedio` é a média de `progressoPercentual` das matrículas do
+    aluno (0 se não houver matrículas), com 1 casa decimal.
+
+    Args:
+        aluno_id: ID (UUID) do aluno.
+    """
+    matriculas = await _paginar("/matriculas", {"alunoId": aluno_id})
+    if _e_erro(matriculas):
+        return matriculas
+
+    total = len(matriculas)
+    por_status = lambda status: sum(1 for m in matriculas if m.get("status") == status)
+    media = sum(m.get("progressoPercentual") or 0 for m in matriculas) / total if total else 0
+    return {
+        "alunoId": aluno_id,
+        "total": total,
+        "ativas": por_status("ativa"),
+        "concluidas": por_status("concluida"),
+        "canceladas": por_status("cancelada"),
+        "progressoMedio": round(media, 1),
+    }
 
 
 @mcp.tool()

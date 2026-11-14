@@ -40,20 +40,81 @@ async def _request(method: str, path: str, **kwargs) -> dict | list:
             return {"erro": True, "status": None, "detalhe": f"Falha ao conectar ao service_cursos: {exc}"}
 
 
+# Tamanho de página usado ao varrer listagens (máximo aceito pela API).
+TAMANHO_PAGINA = 200
+
+# Mapa de acentos: o mesmo de services/service_receitas/src/texto.ts.
+_ACENTOS_DE = "áàâãäéèêëíìîïóòôõöúùûüçñÁÀÂÃÄÉÈÊËÍÌÎÏÓÒÔÕÖÚÙÛÜÇÑ"
+_ACENTOS_PARA = "aaaaaeeeeiiiiooooouuuucnAAAAAEEEEIIIIOOOOOUUUUCN"
+_TABELA_ACENTOS = str.maketrans(_ACENTOS_DE, _ACENTOS_PARA)
+
+
+def sem_acento(texto: str) -> str:
+    """Remove acentos e converte para minúsculo (mesmo mapa do service_receitas)."""
+    return texto.translate(_TABELA_ACENTOS).lower()
+
+
+def _e_erro(resultado) -> bool:
+    """True se o resultado de `_request` é um erro padronizado."""
+    return isinstance(resultado, dict) and resultado.get("erro") is True
+
+
+async def _paginar(path: str, params: Optional[dict] = None) -> dict | list:
+    """Varre uma listagem com limit=200 e offset crescente, até a página vir
+    menor que 200. Propaga na hora o erro `{erro: true}` de qualquer página."""
+    itens: list = []
+    offset = 0
+    while True:
+        pagina = await _request(
+            "GET", path, params={**(params or {}), "limit": TAMANHO_PAGINA, "offset": offset}
+        )
+        if _e_erro(pagina):
+            return pagina
+        if not isinstance(pagina, list):
+            return {"erro": True, "status": None, "detalhe": f"Resposta inesperada de {path}: esperava uma lista."}
+        itens.extend(pagina)
+        if len(pagina) < TAMANHO_PAGINA:
+            return itens
+        offset += TAMANHO_PAGINA
+
+
 # ---------------------------------------------------------------------------
 # Tools
 # ---------------------------------------------------------------------------
 
 @mcp.tool()
 async def listar_cursos(categoria: Optional[str] = None, nivel: Optional[str] = None) -> dict | list:
-    """Lista os cursos de culinária do Cookings.
+    """Lista TODOS os cursos de culinária do Cookings (percorre todas as páginas).
 
     Args:
         categoria: filtra por categoria (ex: "Massas", "Confeitaria", "Carnes").
         nivel: filtra por nível: "iniciante", "intermediario" ou "avancado".
     """
     params = {k: v for k, v in {"categoria": categoria, "nivel": nivel}.items() if v}
-    return await _request("GET", "/cursos", params=params)
+    return await _paginar("/cursos", params)
+
+
+@mcp.tool()
+async def buscar_cursos_por_texto(texto: str) -> dict | list:
+    """Busca cursos cujo título, descrição ou categoria contenha o texto
+    (sem diferenciar acento ou maiúsculas). A busca é feita localmente sobre a
+    lista completa de cursos.
+
+    Args:
+        texto: trecho a procurar, ex: "massa", "confeitaria", "pão".
+    """
+    alvo = sem_acento((texto or "").strip())
+    if not alvo:
+        return {"erro": True, "status": 400, "detalhe": "Informe um texto para buscar."}
+
+    cursos = await _paginar("/cursos")
+    if _e_erro(cursos):
+        return cursos
+    return [
+        c
+        for c in cursos
+        if any(alvo in sem_acento(str(c.get(campo) or "")) for campo in ("titulo", "descricao", "categoria"))
+    ]
 
 
 @mcp.tool()
