@@ -25,3 +25,9 @@ services:
       - ./.env
     ports:
       - "3000:3000"
+    volumes:
+      # sqlite do cache semântico (CACHE_DB_PATH=./data/cache.sqlite, cwd /app)
+      - cookings_cache:/app/data
+
+volumes:
+  cookings_cache:
