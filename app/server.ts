@@ -2,8 +2,9 @@ import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { serveStatic } from "hono/bun";
 import { z } from "zod";
-import { sendChatMessage } from "./src/application/chat/sendChatMessage";
+import { answerQuestion } from "./src/application/chat/answerQuestion";
 import { createLLMAdapter } from "./src/infrastructure/llm/llmFactory";
+import { createJudgeAdapter, readJudgeConfig } from "./src/infrastructure/judge/judgeFactory";
 import { McpToolsAdapter } from "./src/infrastructure/mcp/McpToolsAdapter";
 
 const app = new Hono();
@@ -15,6 +16,8 @@ app.use("*", cors());
 // -----------------------------------------------------------------------
 
 const llm = createLLMAdapter();
+const judgeConfig = readJudgeConfig();
+const judge = createJudgeAdapter(judgeConfig);
 
 function mcpUrl(base: string, fallback: string): string {
   const isLocal = process.env.APP_ENV === "local";
@@ -54,7 +57,16 @@ app.post("/api/chat", async (c) => {
   }
 
   try {
-    const resultado = await sendChatMessage({ llm, tools: mcpTools }, parsed.data.messages);
+    const resultado = await answerQuestion(
+      {
+        llm,
+        tools: mcpTools,
+        judge,
+        judgeEnabled: judgeConfig.enabled,
+        maxRevisions: judgeConfig.maxRevisions,
+      },
+      parsed.data.messages
+    );
     return c.json(resultado);
   } catch (err) {
     console.error("[app] Erro no /api/chat:", err);
@@ -73,7 +85,9 @@ app.use("/*", serveStatic({ root: "./dist" }));
 app.get("*", serveStatic({ path: "./dist/index.html" }));
 
 const port = Number(process.env.PORT ?? 3000);
-console.log(`[app] backend rodando na porta ${port} (LLM_PROVIDER=${llm.providerName})`);
+console.log(
+  `[app] backend rodando na porta ${port} (LLM_PROVIDER=${llm.providerName}, JUDGE_ENABLED=${judgeConfig.enabled})`
+);
 
 export default {
   port,

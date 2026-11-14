@@ -12,6 +12,8 @@ import type { ConversationTurn, LLMPort, LLMTurnResult, ToolDefinition } from ".
 // - "CHAIN:<json array de {name, arguments}>" — emite um tool_call por
 //   converse (id estável mock-chain-N). Quando a cadeia acaba, responde
 //   no formato fixo de receita. Ingrediente de teste ausente: chocolate.
+// - Se um user anterior tem [[REVISAR]] e o último user é o feedback do
+//   juiz (sem TOOL:/CHAIN:/marcadores), devolve texto limpo (Fase 3).
 // Qualquer outra mensagem só recebe um eco de texto.
 
 type PassoDaCadeia = { name: string; arguments: Record<string, unknown> };
@@ -58,6 +60,15 @@ export class MockAdapter implements LLMPort {
           return { type: "text", text: `[mock] ${carregada.erro}` };
         }
         return this.emitirProximoPasso(params.tools);
+      }
+
+      // Regeneração do juiz: última user é o feedback, devolve texto limpo.
+      if (this.ehFeedbackDeRevisao(params.turns)) {
+        this.limparCadeia();
+        return {
+          type: "text",
+          text: "[mock] Resposta revisada, clara e fiel aos dados disponíveis.",
+        };
       }
 
       this.limparCadeia();
@@ -164,6 +175,23 @@ export class MockAdapter implements LLMPort {
     ].join("\n");
 
     return { type: "text", text };
+  }
+
+  private ehFeedbackDeRevisao(turns: ConversationTurn[]): boolean {
+    const users = turns.filter((t): t is { role: "user"; content: string } => t.role === "user");
+    if (users.length < 2) return false;
+
+    const ultimo = users[users.length - 1].content;
+    if (ultimo.startsWith("TOOL:") || ultimo.startsWith("CHAIN:")) return false;
+    if (
+      ultimo.includes("[[REVISAR]]") ||
+      ultimo.includes("[[REPROVAR]]") ||
+      ultimo.includes("[[INDISPONIVEL]]")
+    ) {
+      return false;
+    }
+
+    return users.slice(0, -1).some((t) => t.content.includes("[[REVISAR]]"));
   }
 
   private limparCadeia(): void {
