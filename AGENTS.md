@@ -1,0 +1,124 @@
+# AGENTS.md — Cookings
+
+Guia operacional para agentes que alteram este repositório. Leia isto e o código citado antes de editar. Especificação da evolução (cache, juiz, receitas por IA): `docs/GUIA_EVOLUCAO_LLM.md`. Arquitetura longa: `Guide.md`. Subida do ambiente: `Readme.md`.
+
+## Papel do modelo principal
+
+Planeje, revise e integre. Implementação de código vai para subagentes Opus ou Sonnet (`model: "opus"` ou `model: "sonnet"`). Não declare nada testado sem ter executado o comando. Separe o que rodou do que ficou de fora.
+
+## Mapa
+
+Três compose independentes na rede Docker externa `cookings-network` (`docker network create cookings-network` uma vez).
+
+| Pasta | Stack | Papel | Portas no host |
+|---|---|---|---|
+| `services/` | Bun, Hono, Drizzle, Zod, PostgreSQL 16 | Fonte da verdade | 3001 cursos, 3002 matrículas, 3003 receitas, 5432 Postgres (`cookings_db`) |
+| `mcp/` | Python, uv, FastMCP `streamable-http`, httpx | Tradutor MCP → HTTP. Sem acesso direto ao banco | 8001 cursos, 8002 matrículas, 8003 receitas (container escuta 8000) |
+| `app/` | React, Vite, Tailwind, backend Bun/Hono | Aba Informações (REST no navegador) e aba Chatbot (`POST /api/chat`) | 5173 Vite, 3000 API |
+
+Um Postgres, três schemas: `cursos`, `matriculas`, `receitas`. Cada `service_*` só fala com o próprio schema. UUID entre schemas não tem `FOREIGN KEY`.
+
+Seed: `services/db/init/001_seed.sql`. O Postgres só executa `db/init/` com volume vazio. IDs fixos por prefixo: `1000` cursos, `2000` aulas, `3000` alunos, `4000` matrículas, `5000` ingredientes, `6000` receitas, `7000` substituições. Grupo `0000` é a amostra original; grupo `0001` é o catálogo ampliado (+100 em cada tabela; vínculos de receita somam 416 porque cada receita nova tem 4 ingredientes). Totais: 103 cursos, 107 aulas, 103 alunos, 104 matrículas, 112 ingredientes, 103 receitas, 105 substituições.
+
+## Regras que não se negociam
+
+- Comentários, docstrings de tools e docs em português.
+- Não leia `.env`. Use só `.env.example`. Nunca grave chave de API.
+- `services/` e `mcp/`: poucos arquivos. Service = `src/index.ts`, `db.ts`, `schema.ts`, `routes.ts`. MCP = `server.py`. Sem auth, sem camada extra.
+- `app/`: hexagonal. `domain/` (entidades e portas) → `application/` (casos de uso) → `infrastructure/` (adapters) → `ui/`. A aplicação só conhece portas. Trocar Gemini, Claude, GPT ou mock é `.env` (`LLM_PROVIDER`) mais `llmFactory.ts`. Nenhuma regra de provedor vaza para `application/`.
+- Erro de service: `{ "error": "...", "details": [...] }` via `zValidator` em `routes.ts`. JSON camelCase. `preco` e `quantidade` (`NUMERIC`) chegam como string.
+- Erro de tool MCP: `{ "erro": true, "status": ..., "detalhe": ... }`. Transporte sempre `streamable-http`, nunca `stdio`.
+- Nome de parâmetro de tool: copie de `mcp/*/server.py`. Não invente.
+- Mudança de schema no seed exige recriar o volume. `docker compose down -v` em `services/` apaga o banco inteiro, inclusive dados criados em uso. Avise antes de rodar.
+
+## Padrões por pasta
+
+### services
+
+- Hono + Zod. Validação ruim responde 400 `{ error: "Dados inválidos", details }`. Ausência responde 404 `{ error }`. Conflito de nome (ingrediente) responde 409.
+- Drizzle declara só o schema dono (`pgSchema("receitas")` etc.). Coluna nova no SQL não aparece na API enquanto não entrar em `schema.ts` e na rota. O Step 1 deixa `alergenos`, `origem` e `substituicoes` só no banco; `service_receitas` continua enviando `cursoId` e ignorando colunas extras.
+- `DATABASE_URL` no `.env` do service. Hostname Docker do banco: `db`. Fora do Docker: `127.0.0.1`.
+- Senha de `services/db/.env` igual à senha dentro de cada `DATABASE_URL`.
+
+### mcp
+
+- `FastMCP(..., host="0.0.0.0", port=MCP_PORT)`. Default de URL do service é `localhost:300x`; no compose, `SERVICE_*_URL=http://service_*:300x`.
+- `_request` traduz HTTP do service. 204 vira `{ "ok": true }`. Falha de rede: `status: null`.
+- Tool nova: docstring em português (a IA escolhe pelo texto), mesmo formato de erro, sem SQL.
+- Tools atuais: cursos `listar_cursos`, `obter_curso`, `listar_aulas_do_curso`, `criar_curso`, `criar_aula`. Matrículas `listar_alunos`, `obter_aluno`, `cadastrar_aluno`, `listar_matriculas`, `obter_matricula`, `matricular_aluno`, `atualizar_progresso_matricula`. Receitas `listar_receitas`, `obter_receita`, `criar_receita`, `listar_ingredientes`, `adicionar_ingrediente_a_receita`.
+
+### app
+
+- Chat: `ui/ChatTab` → `POST /api/chat` → `application/chat/sendChatMessage.ts` (loop, `MAX_TOOL_ITERATIONS = 5`) → `LLMPort.converse` → `McpToolsAdapter` → MCP → services. Resposta `{ reply, toolCallsExecuted }`.
+- Estado do chat fica em `ui/App.tsx` (sobrevive à troca de aba). Persistência opcional em `localStorage` (`ChatHistoryStorage.ts`), com consentimento. Histórico antigo é só `role` / `content`.
+- Front da aba Informações chama os services no navegador (`VITE_SERVICE_*_URL`, localhost publicado). Hostname interno de container não resolve no browser.
+- URLs MCP: `server.ts` usa `MCP_*_URL` e, se `APP_ENV=local` (script `dev:server`), `MCP_*_URL_DEV`.
+- Adapters LLM: `GeminiAdapter`, `ClaudeAdapter`, `GptAdapter`, `MockAdapter`. Gemini fica com um modelo (`GEMINI_MODEL`, padrão `gemini-flash-latest`). Claude e GPT aceitam lista separada por vírgula (`CLAUDE_MODEL`, `OPENAI_MODEL`): só HTTP 404 troca de modelo. 401/403/400 não trocam. 429/503 (e 529 no Claude) fazem retry com backoff no mesmo modelo.
+- Gemini: `functionResponse.response` tem de ser objeto; `thoughtSignature` volta igual, sem edição. Lista vazia de tool MCP pode chegar como `null`; lista de um item pode chegar como objeto.
+- UI mostra texto puro (`whitespace-pre-wrap`), sem markdown.
+- Contar pergunta do usuário: só `role === "user"`. A saudação inicial do assistente entra no histórico.
+
+## Como validar
+
+Não marque como testado o que não rodou. Chave real e `docker compose` são do ambiente de quem desenvolve; se não houver chave ou Docker, diga isso.
+
+### App (sempre que mexer em `app/`)
+
+```bash
+cd app
+bun run typecheck
+bun run build
+```
+
+Esteira sem chave: `LLM_PROVIDER=mock` no `.env` (ver `app/.env.example`). `MockAdapter` usa o protocolo `TOOL:<nome>:<json>`.
+
+### Services
+
+```bash
+curl http://localhost:3001/health
+curl http://localhost:3002/health
+curl http://localhost:3003/health
+curl http://localhost:3003/receitas
+curl http://localhost:3003/receitas/60000000-0000-0000-0000-000000000001
+curl http://localhost:3003/ingredientes
+```
+
+Fora do Docker, na pasta do service: `bun install`, copiar `.env.example` para `.env`, `bun run dev`.
+
+### Banco, depois de mudar `001_seed.sql`
+
+Confirme com a pessoa antes: o comando abaixo apaga todos os dados.
+
+```bash
+cd services
+docker compose down -v
+docker compose up -d --build
+docker exec -it cookings_db psql -U cookings -d cookings -c "select nome, alergenos from receitas.ingredientes;"
+docker exec -it cookings_db psql -U cookings -d cookings -c "select count(*) from receitas.substituicoes;"
+```
+
+Usuário e database padrão: `cookings` (`services/db/.env.example`).
+
+### MCP
+
+Com os três services no ar e o servidor MCP no ar:
+
+```bash
+cd mcp
+uv run python test_client.py http://localhost:8003/mcp "[{\"tool\":\"listar_receitas\",\"args\":{}}]"
+uv run python test_client.py http://localhost:8001/mcp "[{\"tool\":\"listar_cursos\",\"args\":{}}]"
+uv run python test_client.py http://localhost:8002/mcp "[{\"tool\":\"listar_alunos\",\"args\":{}}]"
+```
+
+Dentro de cada `mcp_*`: `uv sync --frozen` depois de mudar dependência. No compose, MCP acha o service pelo hostname (`http://service_receitas:3003`). Fora do Docker, aponte `SERVICE_*_URL` para `http://localhost:300x`.
+
+### O que ainda não é prova
+
+- `bun run typecheck` não prova Claude, GPT nem Gemini de verdade.
+- Curl de receita não prova tool MCP.
+- Seed aplicado num Postgres descartável não prova o volume Docker de quem desenvolve.
+- Nomes de modelo e preço mudam: confira a doc do provedor na hora. Não copie ID de memória. O `.env.example` já lista fallback; IDs podem estar velhos.
+
+## Estado útil para a próxima fase
+
+Step 0 está no código: fallback de modelo em Claude e GPT, `.gitattributes` com LF. Step 1 está no seed: `ingredientes.alergenos` (vocabulário `gluten`, `lactose`, `ovo`, `soja`, `amendoim`, `castanhas`, `peixe`, `crustaceos`), `receitas.origem` (`curso` | `ia`), `curso_id` nulo só se `origem = 'ia'`, tabela `receitas.substituicoes`. API e tools novas ainda não existem; isso começa no Step 2 / Fase 1.2 do guia.
