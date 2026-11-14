@@ -177,6 +177,8 @@ usuário → /api/chat
 
 ### Fase 5 — Observabilidade, UI e avaliação
 
+Implementada no `app/` (UI, `GET /api/metrics`, log JSONL, `scripts/eval.ts`). Juiz real, embeddings reais e Docker não foram executados nesta máquina.
+
 - **Metadados na UI (`ChatTab`):** selo discreto "resposta do cache (similaridade X)" e resultado do juiz (veredito + notas) em detalhe expansível; manter o fluxo e o estado do chat em `App.tsx` intactos. Se o histórico do `localStorage` guardar metadados, manter compatível com o formato antigo (`role`/`content`).
 - **`GET /api/metrics`:** contadores em memória/SQLite — hits, misses, chamadas ao LLM principal evitadas, distribuição de vereditos, média de notas do juiz, latência média com e sem cache.
 - **Log de avaliação** (JSONL): pergunta, resposta, evidências, veredito, fonte (cache/LLM). Útil para o capítulo.
@@ -204,6 +206,9 @@ JUDGE_PROVIDER=claude
 JUDGE_MODEL=
 JUDGE_MAX_REVISIONS=1
 JUDGE_EVIDENCE_MAX_CHARS=6000
+
+# Log JSONL por resposta (vazio = desligado)
+EVAL_LOG_PATH=
 ```
 
 Chaves de API continuam nas variáveis já existentes (`GEMINI_API_KEY`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`). Valores de `*_MODEL` ficam vazios no exemplo: o desenvolvedor define após conferir os modelos vigentes.
@@ -232,9 +237,11 @@ Ao terminar, entregue:
 
 ### Checklist
 
-- [ ] Fase 1: schema + seed, endpoints novos no `service_receitas`, tools MCP novas, testes `curl`/`test_client.py`
-- [ ] Fase 2: system prompt de geração de receitas + tool de salvar
-- [ ] Fase 3: `JudgePort`, adapter, orquestrador `answerQuestion`, loop de revisão, `evidencias` em `sendChatMessage`
-- [ ] Fase 4: `EmbeddingPort`, `SemanticCachePort`, adapters, regras de elegibilidade e invalidação
-- [ ] Fase 5: metadados na UI, `/api/metrics`, log JSONL, script de avaliação, documentação atualizada
-- [ ] `bun run typecheck` e `bun run build` limpos; relatório da seção 7 entregue
+- [x] Fase 1: schema + seed, endpoints novos no `service_receitas`, tools MCP novas, testes `curl`/`test_client.py`
+- [x] Fase 2: system prompt de geração de receitas + tool de salvar
+- [x] Fase 3: `JudgePort`, adapter, orquestrador `answerQuestion`, loop de revisão, `evidencias` em `sendChatMessage`
+- [x] Fase 4: `EmbeddingPort`, `SemanticCachePort`, adapters, regras de elegibilidade e invalidação
+- [x] Fase 5: metadados na UI, `/api/metrics`, log JSONL, script de avaliação, documentação atualizada
+- [x] `bun run typecheck` e `bun run build` limpos; relatório da seção 7 entregue
+
+Nota (esta máquina): o checklist acima marca o que **existe no código**. Não foram executados aqui juiz real, embeddings reais nem Docker. `curl`/`test_client.py` e chaves de provedor ficam no ambiente de quem desenvolve. `bun test`, `typecheck`, `build` e `bun run scripts/eval.ts` (mocks) são a prova local da Fase 5.

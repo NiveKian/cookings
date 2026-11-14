@@ -5,13 +5,13 @@ Cliente React + Vite + TailwindCSS, com **arquitetura hexagonal**, e um pequeno 
 ## Duas Abas
 
 - **Informações**: consome os `service_*` (pasta `services/`) **diretamente do navegador**, via `fetch` — sem passar por IA ou MCP. Lista cursos, alunos e receitas.
-- **Chatbot**: envia a mensagem do usuário para `POST /api/chat` (backend deste próprio app), que conversa com o provedor de IA configurado e, quando necessário, executa tools reais nos 3 servidores MCP (`mcp_cursos`, `mcp_matriculas`, `mcp_receitas`) até ter uma resposta final.
+- **Chatbot**: envia a mensagem do usuário para `POST /api/chat` (backend deste próprio app). O orquestrador consulta o cache semântico, chama a LLM com tools MCP, passa a resposta por um juiz (segunda LLM) e devolve `{ reply, toolCallsExecuted, evidencias, judge, cache }`. A UI mostra selo de cache e o veredito do juiz em `<details>` (texto puro, sem markdown).
 
 ## Por Que Há um Backend Aqui
 
 O `app` é uma SPA, mas chamadas a LLMs (com chave de API) e a orquestração de tool-calling contra os servidores MCP **precisam** rodar no servidor — nunca no navegador (a chave vazaria, e MCP via `streamable-http` server-to-server é o padrão já definido no `GUIA_LLM.md`). Por isso, além do front, este projeto tem um `server.ts` (Bun + Hono) que:
 1. Serve o build estático do Vite (`dist/`) em produção.
-2. Expõe `POST /api/chat`, onde mora toda a lógica de IA + MCP.
+2. Expõe `POST /api/chat` (IA + MCP + juiz + cache), `GET /api/health` e `GET /api/metrics`.
 
 ## Arquitetura Hexagonal
 
@@ -25,7 +25,8 @@ src/
 │       └── ServicePorts.ts   # contrato de leitura dos services (aba Informações)
 │
 ├── application/
-│   ├── chat/sendChatMessage.ts   # caso de uso: loop de tool-calling
+│   ├── chat/sendChatMessage.ts   # loop de tool-calling
+│   ├── chat/answerQuestion.ts    # cache → LLM → juiz → grava/invalida
 │   └── info/infoQueries.ts       # casos de uso finos da aba Informações
 │
 ├── infrastructure/
@@ -36,6 +37,9 @@ src/
 │   │   ├── MockAdapter.ts     ┘  (bônus: testes offline, ver abaixo)
 │   │   └── llmFactory.ts      # único ponto de troca de provedor (LLM_PROVIDER no .env)
 │   ├── mcp/McpToolsAdapter.ts # implementa ToolsPort, conecta aos 3 servidores MCP
+│   ├── judge/                    # MockJudgeAdapter + LLMJudgeAdapter
+│   ├── embeddings/ + cache/      # EmbeddingPort + SqliteSemanticCache
+│   ├── metrics/                  # GET /api/metrics (memória) + log JSONL
 │   └── http/ServicesHttpAdapter.ts # implementa ServicePorts, fetch do navegador
 │
 └── ui/
@@ -86,13 +90,32 @@ curl -X POST http://localhost:3000/api/chat -H "Content-Type: application/json" 
 
 Qualquer outra mensagem recebe apenas um eco de texto (sem chamar tools).
 
+## Juiz, cache, métricas e avaliação
+
+- **Juiz** (`JUDGE_ENABLED=true`, `JUDGE_PROVIDER`): outra LLM (ou `mock`) avalia fidelidade, coerência, segurança, relevância e clareza. Fail-open na entrega, fail-closed no cache.
+- **Cache semântico** (`CACHE_ENABLED=true`, `bun:sqlite`): só pergunta standalone, sem novidade (`invente`/`outra`/`diferente`/`surpreenda`), com juiz aprovando. HIT devolve a resposta sem chamar a LLM principal.
+- **`GET /api/metrics`**: contadores em memória do processo (hits, misses, LLM evitadas, vereditos, média das notas, latência com/sem cache). Zera ao reiniciar. Sem chat ainda, tudo 0.
+- **Log JSONL** (`EVAL_LOG_PATH`): uma linha por resposta. Vazio no `.env.example` = desligado. Falha de disco não derruba o chat.
+- **Avaliação offline** (sem chave, sem Docker):
+
+```bash
+bun test
+bun run scripts/eval.ts
+```
+
+`scripts/eval.ts` roda `scripts/eval-questions.json` (20 perguntas) com mocks + sqlite temporário e imprime taxa de HIT, notas médias e chamadas ao LLM.
+
+Vars novas: ver `.env.example` (`CACHE_*`, `EMBEDDING_*`, `JUDGE_*`, `EVAL_LOG_PATH`).
+
 ## Estrutura
 
 ```
 app/
 ├── docker-compose.yml
 ├── Dockerfile
-├── server.ts               # backend Bun/Hono: /api/chat, /api/health, serve dist/
+├── server.ts               # backend Bun/Hono: /api/chat, /api/health, /api/metrics, serve dist/
+├── scripts/eval.ts         # avaliação offline (mocks)
+├── scripts/eval-questions.json
 ├── src/                     # ver árvore hexagonal acima
 ├── index.html, vite.config.ts, tailwind.config.js, postcss.config.js
 └── .env.example

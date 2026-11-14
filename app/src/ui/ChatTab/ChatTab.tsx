@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { ChatMessage } from "../../domain/entities";
+import type { ChatCacheMeta, ChatJudgeMeta, ChatMessage } from "../../domain/entities";
 
 interface ChatTabProps {
   // "mensagens" e "setMensagens" vêm do App.tsx (lifted state) — assim o
@@ -8,6 +8,14 @@ interface ChatTabProps {
   mensagens: ChatMessage[];
   setMensagens: React.Dispatch<React.SetStateAction<ChatMessage[]>>;
 }
+
+type ChatApiOk = {
+  reply: string;
+  toolCallsExecuted?: string[];
+  evidencias?: unknown;
+  judge?: ChatJudgeMeta;
+  cache?: ChatCacheMeta;
+};
 
 export default function ChatTab({ mensagens, setMensagens }: ChatTabProps) {
   // Estes 3 continuam locais: são só estado de UI momentâneo (o que está
@@ -31,16 +39,25 @@ export default function ChatTab({ mensagens, setMensagens }: ChatTabProps) {
       const resp = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: novasMensagens }),
+        body: JSON.stringify({
+          // Backend só usa role/content; metadados da UI não vão na LLM.
+          messages: novasMensagens.map(({ role, content }) => ({ role, content })),
+        }),
       });
 
-      const data = await resp.json();
+      const data = (await resp.json()) as ChatApiOk & { error?: string };
 
       if (!resp.ok) {
         throw new Error(data.error || `Erro HTTP ${resp.status}`);
       }
 
-      setMensagens([...novasMensagens, { role: "assistant", content: data.reply }]);
+      const assistente: ChatMessage = {
+        role: "assistant",
+        content: data.reply,
+        cache: data.cache,
+        judge: data.judge,
+      };
+      setMensagens([...novasMensagens, assistente]);
     } catch (e) {
       setErro(e instanceof Error ? e.message : "Erro desconhecido ao conversar com o assistente.");
     } finally {
@@ -54,11 +71,12 @@ export default function ChatTab({ mensagens, setMensagens }: ChatTabProps) {
         {mensagens.map((m, i) => (
           <div key={i} className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
             <div
-              className={`max-w-[75%] whitespace-pre-wrap rounded-lg px-3 py-2 text-sm ${
+              className={`max-w-[75%] rounded-lg px-3 py-2 text-sm ${
                 m.role === "user" ? "bg-orange-500 text-white" : "bg-neutral-100 text-neutral-800"
               }`}
             >
-              {m.content}
+              <div className="whitespace-pre-wrap">{m.content}</div>
+              {m.role === "assistant" ? <MetadadosAssistente mensagem={m} /> : null}
             </div>
           </div>
         ))}
@@ -83,5 +101,41 @@ export default function ChatTab({ mensagens, setMensagens }: ChatTabProps) {
         </button>
       </div>
     </div>
+  );
+}
+
+/** Selo de cache e juiz em texto puro (sem markdown). */
+function MetadadosAssistente({ mensagem }: { mensagem: ChatMessage }) {
+  const selo = mensagem.cache?.usado ? seloCache(mensagem.cache) : null;
+  const judge = mensagem.judge;
+
+  if (!selo && !judge) return null;
+
+  return (
+    <div className="mt-2 space-y-1 text-[11px] text-neutral-500">
+      {selo ? <p>{selo}</p> : null}
+      {judge ? (
+        <details>
+          <summary className="cursor-pointer">juiz: {judge.veredito}</summary>
+          <p className="mt-1">{textoNotas(judge)}</p>
+        </details>
+      ) : null}
+    </div>
+  );
+}
+
+function seloCache(cache: ChatCacheMeta): string {
+  if (typeof cache.similaridade === "number" && Number.isFinite(cache.similaridade)) {
+    return `resposta do cache (similaridade ${cache.similaridade.toFixed(2)})`;
+  }
+  return "resposta do cache";
+}
+
+function textoNotas(judge: ChatJudgeMeta): string {
+  const n = judge.notas;
+  if (!n) return "";
+  return (
+    `fidelidade ${n.fidelidade}, coerência ${n.coerencia}, ` +
+    `segurança ${n.seguranca}, relevância ${n.relevancia}, clareza ${n.clareza}`
   );
 }

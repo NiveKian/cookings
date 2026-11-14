@@ -1,0 +1,22 @@
+[
+  { "id": 1, "pergunta": "quais cursos de massas existem" },
+  { "id": 2, "pergunta": "cursos de massas quais existem" },
+  { "id": 3, "pergunta": "quais receitas usam manteiga" },
+  { "id": 4, "pergunta": "receitas usam manteiga quais" },
+  { "id": 5, "pergunta": "liste os alunos cadastrados" },
+  { "id": 6, "pergunta": "alunos cadastrados liste os" },
+  { "id": 7, "pergunta": "quanto custa o curso de pães" },
+  { "id": 8, "pergunta": "custa o curso de pães quanto" },
+  { "id": 9, "pergunta": "quais ingredientes tem lactose" },
+  { "id": 10, "pergunta": "ingredientes tem lactose quais" },
+  { "id": 11, "pergunta": "quais aulas tem o curso de massas" },
+  { "id": 12, "pergunta": "aulas tem o curso de massas quais" },
+  { "id": 13, "pergunta": "como funciona a matricula no curso" },
+  { "id": 14, "pergunta": "invente uma sobremesa com chocolate" },
+  { "id": 15, "pergunta": "invente um bolo diferente sem ovo" },
+  { "id": 16, "pergunta": "quero uma receita sem lactose" },
+  { "id": 17, "pergunta": "receita sem lactose quero uma" },
+  { "id": 18, "pergunta": "quais cursos de confeitaria existem" },
+  { "id": 19, "pergunta": "e o segundo?", "followUp": true },
+  { "id": 20, "pergunta": "tem substituto para leite na receita" }
+]

@@ -8,6 +8,8 @@ import { createJudgeAdapter, readJudgeConfig } from "./src/infrastructure/judge/
 import { createEmbeddingAdapter } from "./src/infrastructure/embeddings/embeddingFactory";
 import { SqliteSemanticCache } from "./src/infrastructure/cache/SqliteSemanticCache";
 import { McpToolsAdapter } from "./src/infrastructure/mcp/McpToolsAdapter";
+import { recordChatAnswer, snapshotChatMetrics } from "./src/infrastructure/metrics/chatMetrics";
+import { appendEvalLog } from "./src/infrastructure/metrics/evalLog";
 
 const app = new Hono();
 
@@ -42,6 +44,8 @@ const mcpTools = new McpToolsAdapter([
 
 app.get("/api/health", (c) => c.json({ status: "ok", service: "app", llmProvider: llm.providerName }));
 
+app.get("/api/metrics", (c) => c.json(snapshotChatMetrics()));
+
 const chatRequestSchema = z.object({
   messages: z
     .array(
@@ -62,6 +66,9 @@ app.post("/api/chat", async (c) => {
   }
 
   try {
+    const pergunta =
+      [...parsed.data.messages].reverse().find((m) => m.role === "user")?.content ?? "";
+    const t0 = Date.now();
     const resultado = await answerQuestion(
       {
         llm,
@@ -77,6 +84,21 @@ app.post("/api/chat", async (c) => {
       },
       parsed.data.messages
     );
+    const latenciaMs = Date.now() - t0;
+    recordChatAnswer({
+      hit: resultado.cache.usado,
+      veredito: resultado.judge.veredito,
+      status: resultado.judge.status,
+      notas: resultado.judge.notas,
+      latenciaMs,
+    });
+    appendEvalLog({
+      pergunta,
+      resposta: resultado.reply,
+      evidencias: resultado.evidencias,
+      veredito: resultado.judge.veredito,
+      fonte: resultado.cache.usado ? "cache" : "llm",
+    });
     return c.json(resultado);
   } catch (err) {
     console.error("[app] Erro no /api/chat:", err);

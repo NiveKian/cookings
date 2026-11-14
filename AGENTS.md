@@ -36,7 +36,7 @@ Seed: `services/db/init/001_seed.sql`. O Postgres só executa `db/init/` com vol
 ### services
 
 - Hono + Zod. Validação ruim responde 400 `{ error: "Dados inválidos", details }`. Ausência responde 404 `{ error }`. Conflito de nome (ingrediente) responde 409.
-- Drizzle declara só o schema dono (`pgSchema("receitas")` etc.). Coluna nova no SQL não aparece na API enquanto não entrar em `schema.ts` e na rota. O Step 1 deixa `alergenos`, `origem` e `substituicoes` só no banco; `service_receitas` continua enviando `cursoId` e ignorando colunas extras.
+- Drizzle declara só o schema dono (`pgSchema("receitas")` etc.). Coluna nova no SQL não aparece na API enquanto não entrar em `schema.ts` e na rota. `service_receitas` já expõe `alergenos`, `origem` e `GET /ingredientes/:id/substituicoes`.
 - `DATABASE_URL` no `.env` do service. Hostname Docker do banco: `db`. Fora do Docker: `127.0.0.1`.
 - Senha de `services/db/.env` igual à senha dentro de cada `DATABASE_URL`.
 
@@ -45,17 +45,20 @@ Seed: `services/db/init/001_seed.sql`. O Postgres só executa `db/init/` com vol
 - `FastMCP(..., host="0.0.0.0", port=MCP_PORT)`. Default de URL do service é `localhost:300x`; no compose, `SERVICE_*_URL=http://service_*:300x`.
 - `_request` traduz HTTP do service. 204 vira `{ "ok": true }`. Falha de rede: `status: null`.
 - Tool nova: docstring em português (a IA escolhe pelo texto), mesmo formato de erro, sem SQL.
-- Tools atuais: cursos `listar_cursos`, `obter_curso`, `listar_aulas_do_curso`, `criar_curso`, `criar_aula`. Matrículas `listar_alunos`, `obter_aluno`, `cadastrar_aluno`, `listar_matriculas`, `obter_matricula`, `matricular_aluno`, `atualizar_progresso_matricula`. Receitas `listar_receitas`, `obter_receita`, `criar_receita`, `listar_ingredientes`, `adicionar_ingrediente_a_receita`.
+- Tools atuais: ver `mcp/README.md` (lista completa, inclusive busca, alérgenos, porções, lista de compras, salvar receita gerada, substituições, resumo de progresso). Nomes de parâmetro: copie de `mcp/*/server.py`.
 
 ### app
 
-- Chat: `ui/ChatTab` → `POST /api/chat` → `application/chat/sendChatMessage.ts` (loop, `MAX_TOOL_ITERATIONS = 5`) → `LLMPort.converse` → `McpToolsAdapter` → MCP → services. Resposta `{ reply, toolCallsExecuted }`.
-- Estado do chat fica em `ui/App.tsx` (sobrevive à troca de aba). Persistência opcional em `localStorage` (`ChatHistoryStorage.ts`), com consentimento. Histórico antigo é só `role` / `content`.
+- Chat: `ui/ChatTab` → `POST /api/chat` → `answerQuestion` (cache semântico → `sendChatMessage` loop `MAX_TOOL_ITERATIONS = 5` → juiz) → `LLMPort.converse` → `McpToolsAdapter` → MCP → services. Resposta `{ reply, toolCallsExecuted, evidencias, judge, cache }`. HIT de cache não chama a LLM principal.
+- Tools novas no MCP (receitas/cursos/matrículas) entram na lista de tools do loop; mutáveis invalidam o cache do domínio (`domain/toolPolicy.ts`).
+- Juiz (`JUDGE_*`) e embeddings (`EMBEDDING_*`) são portas próprias; provedor ≠ `LLM_PROVIDER`. Mock para esteira sem chave.
+- Estado do chat fica em `ui/App.tsx` (sobrevive à troca de aba). Persistência opcional em `localStorage` (`ChatHistoryStorage.ts`), com consentimento. Histórico antigo `{role, content}` continua válido; metadados (cache/juiz) são opcionais.
+- UI: texto puro (`whitespace-pre-wrap`), selo "resposta do cache (similaridade X)" e `<details>` do juiz. Sem markdown.
+- `GET /api/metrics`: contadores em memória. `EVAL_LOG_PATH`: JSONL por resposta (opcional).
 - Front da aba Informações chama os services no navegador (`VITE_SERVICE_*_URL`, localhost publicado). Hostname interno de container não resolve no browser.
 - URLs MCP: `server.ts` usa `MCP_*_URL` e, se `APP_ENV=local` (script `dev:server`), `MCP_*_URL_DEV`.
 - Adapters LLM: `GeminiAdapter`, `ClaudeAdapter`, `GptAdapter`, `MockAdapter`. Gemini fica com um modelo (`GEMINI_MODEL`, padrão `gemini-flash-latest`). Claude e GPT aceitam lista separada por vírgula (`CLAUDE_MODEL`, `OPENAI_MODEL`): só HTTP 404 troca de modelo. 401/403/400 não trocam. 429/503 (e 529 no Claude) fazem retry com backoff no mesmo modelo.
 - Gemini: `functionResponse.response` tem de ser objeto; `thoughtSignature` volta igual, sem edição. Lista vazia de tool MCP pode chegar como `null`; lista de um item pode chegar como objeto.
-- UI mostra texto puro (`whitespace-pre-wrap`), sem markdown.
 - Contar pergunta do usuário: só `role === "user"`. A saudação inicial do assistente entra no histórico.
 
 ## Como validar
@@ -66,11 +69,13 @@ Não marque como testado o que não rodou. Chave real e `docker compose` são do
 
 ```bash
 cd app
+bun test
 bun run typecheck
 bun run build
+bun run scripts/eval.ts
 ```
 
-Esteira sem chave: `LLM_PROVIDER=mock` no `.env` (ver `app/.env.example`). `MockAdapter` usa o protocolo `TOOL:<nome>:<json>`.
+Esteira sem chave: `LLM_PROVIDER=mock`, `JUDGE_PROVIDER=mock`, `EMBEDDING_PROVIDER=mock` no `.env` (ver `app/.env.example`). `MockAdapter` usa o protocolo `TOOL:<nome>:<json>`.
 
 ### Services
 
@@ -119,6 +124,6 @@ Dentro de cada `mcp_*`: `uv sync --frozen` depois de mudar dependência. No comp
 - Seed aplicado num Postgres descartável não prova o volume Docker de quem desenvolve.
 - Nomes de modelo e preço mudam: confira a doc do provedor na hora. Não copie ID de memória. O `.env.example` já lista fallback; IDs podem estar velhos.
 
-## Estado útil para a próxima fase
+## Estado útil
 
-Step 0 está no código: fallback de modelo em Claude e GPT, `.gitattributes` com LF. Step 1 está no seed: `ingredientes.alergenos` (vocabulário `gluten`, `lactose`, `ovo`, `soja`, `amendoim`, `castanhas`, `peixe`, `crustaceos`), `receitas.origem` (`curso` | `ia`), `curso_id` nulo só se `origem = 'ia'`, tabela `receitas.substituicoes`. API e tools novas ainda não existem; isso começa no Step 2 / Fase 1.2 do guia.
+Fases 1–5 do `docs/GUIA_EVOLUCAO_LLM.md` estão no código (tools MCP novas, geração, juiz, cache, UI/métricas/eval). Validar o app com `bun test`, `typecheck`, `build` e `bun run scripts/eval.ts`. Juiz real, embeddings reais e Docker ficam no ambiente de quem desenvolve.

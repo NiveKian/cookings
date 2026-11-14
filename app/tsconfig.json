@@ -15,5 +15,5 @@
     "noEmit": true,
     "types": ["bun-types"]
   },
-  "include": ["src", "server.ts"]
+  "include": ["src", "server.ts", "scripts"]
 }
