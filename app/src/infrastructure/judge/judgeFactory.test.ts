@@ -1,11 +1,12 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { createJudgeAdapter, readJudgeConfig } from "./judgeFactory";
 
-const CHAVES = ["JUDGE_ENABLED", "JUDGE_PROVIDER", "JUDGE_MODEL", "OLLAMA_BASE_URL", "LLM_PROVIDER"] as const;
+const CHAVES = ["JUDGE_ENABLED", "JUDGE_PROVIDER", "JUDGE_MODEL", "JUDGE_MODE", "OLLAMA_BASE_URL", "LLM_PROVIDER"] as const;
 const originais: Record<(typeof CHAVES)[number], string | undefined> = {
   JUDGE_ENABLED: process.env.JUDGE_ENABLED,
   JUDGE_PROVIDER: process.env.JUDGE_PROVIDER,
   JUDGE_MODEL: process.env.JUDGE_MODEL,
+  JUDGE_MODE: process.env.JUDGE_MODE,
   OLLAMA_BASE_URL: process.env.OLLAMA_BASE_URL,
   LLM_PROVIDER: process.env.LLM_PROVIDER,
 };
@@ -37,7 +38,8 @@ describe("judgeFactory", () => {
     globalThis.fetch = fetchOriginal;
   });
 
-  test("JUDGE_PROVIDER=ollama avalia com JSON do Ollama e não envia tools", async () => {
+  test("JUDGE_PROVIDER=ollama com JUDGE_MODE=completo usa o schema do veredito e não envia tools", async () => {
+    process.env.JUDGE_MODE = "completo";
     process.env.JUDGE_ENABLED = "true";
     process.env.JUDGE_PROVIDER = "ollama";
     process.env.JUDGE_MODEL = "   ";
@@ -96,6 +98,7 @@ describe("judgeFactory", () => {
     process.env.JUDGE_ENABLED = "true";
     process.env.JUDGE_PROVIDER = "ollama";
     process.env.JUDGE_TIMEOUT_MS = "20";
+    process.env.JUDGE_MODE = "completo";
     process.env.LLM_PROVIDER = "mock";
     globalThis.fetch = (async () => {
       await new Promise((r) => setTimeout(r, 60));
@@ -144,5 +147,61 @@ describe("judgeFactory", () => {
 
     expect(resultado.status).toBe("ok");
     expect(resultado.veredito).toBe("aprovar");
+  });
+
+  test("ollama usa o juiz de relevância por padrão; demais provedores usam o completo", () => {
+    delete process.env.JUDGE_MODE;
+    process.env.JUDGE_PROVIDER = "ollama";
+    expect(readJudgeConfig().mode).toBe("relevancia");
+    for (const provider of ["gemini", "claude", "gpt", "mock"]) {
+      process.env.JUDGE_PROVIDER = provider;
+      expect(readJudgeConfig().mode).toBe("completo");
+    }
+  });
+
+  test("JUDGE_MODE sobrepõe o padrão; valor desconhecido cai no padrão", () => {
+    process.env.JUDGE_PROVIDER = "ollama";
+    process.env.JUDGE_MODE = "COMPLETO";
+    expect(readJudgeConfig().mode).toBe("completo");
+    process.env.JUDGE_PROVIDER = "claude";
+    process.env.JUDGE_MODE = "relevancia";
+    expect(readJudgeConfig().mode).toBe("relevancia");
+    process.env.JUDGE_MODE = "xyz";
+    expect(readJudgeConfig().mode).toBe("completo");
+  });
+
+  test("ollama em modo relevância envia o schema {motivo, atende} e mapeia o veredito", async () => {
+    process.env.JUDGE_ENABLED = "true";
+    process.env.JUDGE_PROVIDER = "ollama";
+    process.env.LLM_PROVIDER = "mock";
+    delete process.env.JUDGE_MODE;
+    delete process.env.JUDGE_MODEL;
+
+    let corpo: Record<string, unknown> | null = null;
+    globalThis.fetch = (async (_input: string | URL | Request, init?: RequestInit) => {
+      corpo = JSON.parse(String(init?.body)) as Record<string, unknown>;
+      return new Response(
+        JSON.stringify({
+          message: { role: "assistant", content: JSON.stringify({ motivo: "trata do pedido", atende: true }) },
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      );
+    }) as unknown as typeof fetch;
+
+    const resultado = await createJudgeAdapter().evaluate({
+      pergunta: "Como faz bolo?",
+      resposta: "Misture e asse.",
+      evidencias: [{ tool: "listar_receitas", argumentos: {}, resultado: [] }],
+    });
+
+    expect(resultado.status).toBe("ok");
+    expect(resultado.modo).toBe("relevancia");
+    expect(resultado.veredito).toBe("aprovar");
+    expect(corpo!.format).toEqual({
+      type: "object",
+      properties: { motivo: { type: "string" }, atende: { type: "boolean" } },
+      required: ["motivo", "atende"],
+    });
+    expect(JSON.stringify(corpo!.messages)).not.toContain("listar_receitas");
   });
 });

@@ -7,6 +7,10 @@ import { GptAdapter } from "../llm/GptAdapter";
 import { OllamaAdapter, urlSemBarraFinal } from "../llm/OllamaAdapter";
 import { LLMJudgeAdapter, TIMEOUT_JUIZ_PADRAO_MS, VEREDITO_JSON_SCHEMA } from "./LLMJudgeAdapter";
 import { MockJudgeAdapter } from "./MockJudgeAdapter";
+import { RELEVANCIA_JSON_SCHEMA, RelevanceJudgeAdapter } from "./RelevanceJudgeAdapter";
+
+/** "completo": rubrica de cinco critérios. "relevancia": juiz leve, só confere se atende ao pedido. */
+export type JudgeMode = "completo" | "relevancia";
 
 export interface JudgeConfig {
   enabled: boolean;
@@ -15,6 +19,8 @@ export interface JudgeConfig {
   evidenceMaxChars: number;
   /** Teto da avaliação em ms (JUDGE_TIMEOUT_MS). Estourou = unavailable. Ignorado no ollama. */
   timeoutMs: number;
+  /** JUDGE_MODE. Padrão: "relevancia" no ollama, "completo" nos demais. */
+  mode: JudgeMode;
 }
 
 /**
@@ -29,7 +35,18 @@ export function readJudgeConfig(): JudgeConfig {
     maxRevisions: parseEnvNumber(process.env.JUDGE_MAX_REVISIONS, 1),
     evidenceMaxChars: parseEnvNumber(process.env.JUDGE_EVIDENCE_MAX_CHARS, 6000),
     timeoutMs: parseTimeoutMs(process.env.JUDGE_TIMEOUT_MS),
+    mode: parseJudgeMode(process.env.JUDGE_MODE, provider),
   };
+}
+
+/**
+ * Modelo local pequeno (ollama) não segura a rubrica de cinco critérios:
+ * por padrão usa o juiz leve. Valor vazio ou desconhecido = padrão.
+ */
+function parseJudgeMode(raw: string | undefined, provider: string): JudgeMode {
+  const valor = raw?.trim().toLowerCase();
+  if (valor === "completo" || valor === "relevancia") return valor;
+  return provider === "ollama" ? "relevancia" : "completo";
 }
 
 /** 0, negativo, vazio ou inválido = padrão (60000 ms). */
@@ -45,7 +62,7 @@ export function createJudgeAdapter(config: JudgeConfig = readJudgeConfig()): Jud
     return new MockJudgeAdapter();
   }
 
-  const llm = tentarCriarLlmDoJuiz(config.provider, process.env.JUDGE_MODEL);
+  const llm = tentarCriarLlmDoJuiz(config.provider, process.env.JUDGE_MODEL, config.mode);
   if (!llm) {
     return new UnavailableJudgeAdapter();
   }
@@ -53,6 +70,9 @@ export function createJudgeAdapter(config: JudgeConfig = readJudgeConfig()): Jud
   // Ollama roda em CPU local e é lento; o usuário prefere esperar o veredito.
   // Sem limite: JUDGE_TIMEOUT_MS só vale para os juízes em nuvem.
   const timeoutMs = config.provider === "ollama" ? Infinity : config.timeoutMs;
+  if (config.mode === "relevancia") {
+    return new RelevanceJudgeAdapter(llm, timeoutMs);
+  }
   return new LLMJudgeAdapter(llm, config.evidenceMaxChars, timeoutMs);
 }
 
@@ -66,7 +86,11 @@ function avisarSeMesmoProvedor(config: JudgeConfig): void {
   }
 }
 
-function tentarCriarLlmDoJuiz(provider: string, modelRaw: string | undefined): LLMPort | null {
+function tentarCriarLlmDoJuiz(
+  provider: string,
+  modelRaw: string | undefined,
+  mode: JudgeMode
+): LLMPort | null {
   const model = modelRaw?.trim() || undefined;
 
   switch (provider) {
@@ -96,9 +120,10 @@ function tentarCriarLlmDoJuiz(provider: string, modelRaw: string | undefined): L
     }
     case "ollama": {
       // Sem chave. URL e modelo vazios caem no padrão local.
-      // format = JSON schema do veredito: o modelo pequeno não foge do contrato.
+      // format = JSON schema do modo escolhido: o modelo pequeno não foge do contrato.
       const baseUrl = urlSemBarraFinal(process.env.OLLAMA_BASE_URL, "http://127.0.0.1:11434");
-      return new OllamaAdapter(baseUrl, model ?? "qwen2.5:1.5b", { format: VEREDITO_JSON_SCHEMA });
+      const format = mode === "relevancia" ? RELEVANCIA_JSON_SCHEMA : VEREDITO_JSON_SCHEMA;
+      return new OllamaAdapter(baseUrl, model ?? "qwen2.5:1.5b", { format });
     }
     default:
       console.warn(`[judge] JUDGE_PROVIDER desconhecido (${provider}); juiz indisponível.`);

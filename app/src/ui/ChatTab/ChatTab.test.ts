@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { ChatJudgeMeta } from "../../domain/entities";
-import { estadoJuiz, linhasNotas, seloOrigem } from "./ChatTab";
+import { estadoJuiz, linhasNotas, linhasRelevancia, seloOrigem } from "./ChatTab";
 
 describe("seloOrigem", () => {
   test("acerto de cache mostra 'Resposta do Cache' e a similaridade no detalhe", () => {
@@ -94,5 +94,47 @@ describe("linhasNotas", () => {
     expect(l).toHaveLength(5);
     expect(l[0]).toBe("fidelidade 5/5 — bate com o que as ferramentas devolveram");
     expect(l[4]).toBe("clareza 4/5 — texto claro, sem enrolação");
+  });
+});
+
+describe("juiz leve (modo relevância)", () => {
+  const leve = (p: Partial<ChatJudgeMeta>) => juiz({ modo: "relevancia", motivo: "lista os ingredientes", ...p });
+
+  test("aprovar mostra 'no tema' em verde", () => {
+    expect(estadoJuiz(leve({}))).toEqual({ texto: "juiz: no tema", cor: "bg-emerald-50 text-emerald-700" });
+  });
+
+  test("reprovar mostra 'fora do tema' em vermelho", () => {
+    expect(estadoJuiz(leve({ veredito: "reprovar" }))).toEqual({
+      texto: "juiz: fora do tema",
+      cor: "bg-red-50 text-red-700",
+    });
+  });
+
+  test("revisar fica âmbar", () => {
+    expect(estadoJuiz(leve({ veredito: "revisar" }))).toEqual({
+      texto: "juiz: revisar",
+      cor: "bg-amber-50 text-amber-700",
+    });
+  });
+
+  test("indisponível fica cinza", () => {
+    expect(estadoJuiz(leve({ status: "unavailable" }))).toEqual({
+      texto: "juiz: indisponível",
+      cor: "bg-neutral-100 text-neutral-500",
+    });
+  });
+
+  test("detalhe explica o juiz leve e mostra o motivo, sem notas", () => {
+    expect(linhasRelevancia(leve({}))).toEqual([
+      "Juiz leve: confere só se a resposta atende ao que foi pedido.",
+      "Motivo: lista os ingredientes",
+    ]);
+  });
+
+  test("sem motivo mostra só a explicação", () => {
+    expect(linhasRelevancia(leve({ motivo: undefined }))).toEqual([
+      "Juiz leve: confere só se a resposta atende ao que foi pedido.",
+    ]);
   });
 });

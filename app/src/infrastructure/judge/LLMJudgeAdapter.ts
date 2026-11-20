@@ -91,6 +91,38 @@ Responda APENAS com um objeto JSON, sem markdown, sem comentário, neste formato
 
 problemas pode ser lista vazia. feedbackParaRegeneracao é obrigatório se veredito for "revisar": instrução curta para o assistente reescrever.`;
 
+/**
+ * Roda a avaliação com teto de tempo. Estourou: aborta a chamada (adapters
+ * que honram signal) e devolve unavailable.
+ * timeoutMs = Infinity: sem limite, espera o juiz terminar (ex.: Ollama local).
+ * Usado pelo juiz completo e pelo juiz leve de relevância.
+ */
+export async function avaliarComTeto(
+  timeoutMs: number,
+  avaliar: (signal: AbortSignal) => Promise<JudgeVerdict>
+): Promise<JudgeVerdict> {
+  if (timeoutMs === Infinity) {
+    // Signal que nunca aborta: o juiz roda até o fim, sem corrida nem timer.
+    return avaliar(new AbortController().signal);
+  }
+  const limiteMs = Number.isFinite(timeoutMs) && timeoutMs > 0 ? timeoutMs : TIMEOUT_JUIZ_PADRAO_MS;
+  const controle = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const estouro = new Promise<JudgeVerdict>((resolve) => {
+    timer = setTimeout(() => {
+      console.warn(`[judge] timeout de ${limiteMs} ms; marcando unavailable.`);
+      controle.abort();
+      resolve(vereditoIndisponivel());
+    }, limiteMs);
+  });
+
+  try {
+    return await Promise.race([avaliar(controle.signal), estouro]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export class LLMJudgeAdapter implements JudgePort {
   constructor(
     private readonly llm: LLMPort,
@@ -98,33 +130,9 @@ export class LLMJudgeAdapter implements JudgePort {
     private readonly timeoutMs: number = TIMEOUT_JUIZ_PADRAO_MS
   ) {}
 
-  /**
-   * Teto de tempo para a avaliação inteira (inclui a retentativa). Estourou:
-   * aborta a chamada (adapters que honram signal) e devolve unavailable.
-   * timeoutMs = Infinity: sem limite, espera o juiz terminar (ex.: Ollama local).
-   */
+  /** Teto de tempo para a avaliação inteira (inclui a retentativa). Ver avaliarComTeto. */
   async evaluate(input: JudgeInput): Promise<JudgeVerdict> {
-    if (this.timeoutMs === Infinity) {
-      // Signal que nunca aborta: o juiz roda até o fim, sem corrida nem timer.
-      return this.avaliar(input, new AbortController().signal);
-    }
-    const limiteMs =
-      Number.isFinite(this.timeoutMs) && this.timeoutMs > 0 ? this.timeoutMs : TIMEOUT_JUIZ_PADRAO_MS;
-    const controle = new AbortController();
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const estouro = new Promise<JudgeVerdict>((resolve) => {
-      timer = setTimeout(() => {
-        console.warn(`[judge] timeout de ${limiteMs} ms; marcando unavailable.`);
-        controle.abort();
-        resolve(vereditoIndisponivel());
-      }, limiteMs);
-    });
-
-    try {
-      return await Promise.race([this.avaliar(input, controle.signal), estouro]);
-    } finally {
-      clearTimeout(timer);
-    }
+    return avaliarComTeto(this.timeoutMs, (signal) => this.avaliar(input, signal));
   }
 
   private async avaliar(input: JudgeInput, signal: AbortSignal): Promise<JudgeVerdict> {
@@ -191,6 +199,7 @@ export class LLMJudgeAdapter implements JudgePort {
     const feedback = parsed.data.feedbackParaRegeneracao?.trim();
     return {
       status: "ok",
+      modo: "completo",
       veredito: parsed.data.veredito,
       notas: parsed.data.notas,
       problemas: parsed.data.problemas,
@@ -204,7 +213,7 @@ function truncar(texto: string, maxChars: number): string {
   return `${texto.slice(0, maxChars)}…[truncado]`;
 }
 
-function extrairJson(texto: string): unknown | null {
+export function extrairJson(texto: string): unknown | null {
   const trimmed = texto.trim();
   if (!trimmed) return null;
 

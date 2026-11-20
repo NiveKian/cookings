@@ -136,6 +136,12 @@ function MetadadosAssistente({ mensagem }: { mensagem: ChatMessage }) {
           </summary>
           {judge.status === "unavailable" ? (
             <p className="mt-1">O juiz não rodou; a resposta não foi avaliada.</p>
+          ) : judge.modo === "relevancia" ? (
+            <div className="mt-1 space-y-1">
+              {linhasRelevancia(judge).map((l) => (
+                <p key={l}>{l}</p>
+              ))}
+            </div>
           ) : (
             <div className="mt-1 space-y-1">
               <ul className="list-disc pl-4">
@@ -198,6 +204,17 @@ export function estadoJuiz(judge: ChatJudgeMeta): { texto: string; cor: string }
   if (judge.status === "unavailable") {
     return { texto: "juiz: indisponível", cor: "bg-neutral-100 text-neutral-500" };
   }
+  if (judge.modo === "relevancia") {
+    // Juiz leve: o texto fala de tema, não de aprovação por notas.
+    switch (judge.veredito) {
+      case "aprovar":
+        return { texto: "juiz: no tema", cor: "bg-emerald-50 text-emerald-700" };
+      case "revisar":
+        return { texto: "juiz: revisar", cor: "bg-amber-50 text-amber-700" };
+      default:
+        return { texto: "juiz: fora do tema", cor: "bg-red-50 text-red-700" };
+    }
+  }
   switch (judge.veredito) {
     case "aprovar":
       return { texto: "juiz: aprovada", cor: "bg-emerald-50 text-emerald-700" };
@@ -206,6 +223,14 @@ export function estadoJuiz(judge: ChatJudgeMeta): { texto: string; cor: string }
     default:
       return { texto: "juiz: reprovada", cor: "bg-red-50 text-red-700" };
   }
+}
+
+/** Detalhe do juiz leve: o que ele confere e o motivo (sem notas). */
+export function linhasRelevancia(judge: ChatJudgeMeta): string[] {
+  const linhas = ["Juiz leve: confere só se a resposta atende ao que foi pedido."];
+  const motivo = judge.motivo?.trim();
+  if (motivo) linhas.push(`Motivo: ${motivo}`);
+  return linhas;
 }
 
 /** Uma linha por critério: nota e o que o critério mede. */

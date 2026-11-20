@@ -40,4 +40,24 @@ describe("parseChatHistory", () => {
     ]);
     expect(mixed).toEqual([{ role: "user", content: "ok" }]);
   });
+
+  test("modo e motivo do juiz leve sobrevivem; valores inválidos são descartados", () => {
+    const notas = { fidelidade: 5, coerencia: 5, seguranca: 5, relevancia: 1, clareza: 5 };
+    const parsed = parseChatHistory([
+      {
+        role: "assistant",
+        content: "Temos cursos.",
+        judge: { status: "ok", veredito: "reprovar", notas, modo: "relevancia", motivo: "fala de cursos" },
+      },
+      {
+        role: "assistant",
+        content: "Outro.",
+        judge: { status: "ok", veredito: "aprovar", notas, modo: "xyz", motivo: 3 },
+      },
+    ]);
+    expect(parsed?.[0].judge?.modo).toBe("relevancia");
+    expect(parsed?.[0].judge?.motivo).toBe("fala de cursos");
+    expect(parsed?.[1].judge).not.toHaveProperty("modo");
+    expect(parsed?.[1].judge).not.toHaveProperty("motivo");
+  });
 });

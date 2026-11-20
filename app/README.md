@@ -37,7 +37,7 @@ src/
 │   │   ├── MockAdapter.ts     ┘  (bônus: testes offline, ver abaixo)
 │   │   └── llmFactory.ts      # único ponto de troca de provedor (LLM_PROVIDER no .env)
 │   ├── mcp/McpToolsAdapter.ts # implementa ToolsPort, conecta aos 3 servidores MCP
-│   ├── judge/                    # MockJudgeAdapter + LLMJudgeAdapter
+│   ├── judge/                    # MockJudgeAdapter + LLMJudgeAdapter + RelevanceJudgeAdapter
 │   ├── embeddings/ + cache/      # EmbeddingPort + SqliteSemanticCache
 │   ├── metrics/                  # GET /api/metrics (memória) + log JSONL
 │   └── http/ServicesHttpAdapter.ts # implementa ServicePorts, fetch do navegador
@@ -92,7 +92,7 @@ Qualquer outra mensagem recebe apenas um eco de texto (sem chamar tools).
 
 ## Juiz, cache, métricas e avaliação
 
-- **Juiz** (`JUDGE_ENABLED=true`, `JUDGE_PROVIDER`): outra LLM (ou `mock`) avalia fidelidade, coerência, segurança, relevância e clareza. Fail-open na entrega, fail-closed no cache. `ollama` usa `qwen2.5:1.5b` local (sem chave; não é o `LLM_PROVIDER`), com `format` = JSON schema do veredito, `temperature: 0` e `keep_alive: "30m"`. `JUDGE_TIMEOUT_MS` (padrão 60000) limita cada avaliação; estourou, a chamada é abortada e o juiz fica indisponível. Não vale para ollama (espera sem limite).
+- **Juiz** (`JUDGE_ENABLED=true`, `JUDGE_PROVIDER`): outra LLM (ou `mock`) avalia fidelidade, coerência, segurança, relevância e clareza. Fail-open na entrega, fail-closed no cache. `ollama` usa `qwen2.5:1.5b` local (sem chave; não é o `LLM_PROVIDER`), com `format` = JSON schema do veredito, `temperature: 0` e `keep_alive: "30m"`. `JUDGE_TIMEOUT_MS` (padrão 60000) limita cada avaliação; estourou, a chamada é abortada e o juiz fica indisponível. Não vale para ollama (espera sem limite). `JUDGE_MODE`: `completo` (cinco critérios) ou `relevancia` (juiz leve: só confere se a resposta atende ao pedido, JSON `{motivo, atende}`, sem evidências; fora do tema regenera uma vez). Padrão: `relevancia` com ollama, `completo` nos demais. A UI mostra "juiz: no tema"/"fora do tema" e o motivo.
 - **Cache semântico** (`CACHE_ENABLED=true`, `bun:sqlite`): só pergunta standalone, sem novidade (`invente`/`outra`/`diferente`/`surpreenda`), com juiz aprovando. HIT devolve a resposta sem chamar a LLM principal.
 - **`GET /api/metrics`**: contadores em memória do processo (hits, misses, LLM evitadas, vereditos, média das notas, latência com/sem cache). Zera ao reiniciar. Sem chat ainda, tudo 0.
 - **Log JSONL** (`EVAL_LOG_PATH`): uma linha por resposta. Vazio no `.env.example` = desligado. Falha de disco não derruba o chat.

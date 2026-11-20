@@ -135,6 +135,9 @@ function parseJudge(raw: unknown): ChatJudgeMeta | undefined {
       return [{ criterio: r.criterio, descricao: r.descricao, bloqueante: r.bloqueante === true }];
     });
   }
+  // Opcionais: histórico antigo não tem "modo" nem "motivo".
+  if (o.modo === "completo" || o.modo === "relevancia") judge.modo = o.modo;
+  if (typeof o.motivo === "string") judge.motivo = o.motivo;
   return judge;
 }
 

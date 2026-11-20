@@ -33,6 +33,14 @@ export interface JudgeVerdict {
   notas: JudgeNotas;
   problemas: JudgeProblema[];
   feedbackParaRegeneracao?: string;
+  /**
+   * Como o juiz avaliou. "completo": cinco critérios com notas.
+   * "relevancia": só confere se a resposta atende ao que foi pedido.
+   * Ausente = completo (vereditos antigos).
+   */
+  modo?: "completo" | "relevancia";
+  /** Frase curta do juiz explicando o veredito (modo relevância). */
+  motivo?: string;
 }
 
 export interface JudgePort {
