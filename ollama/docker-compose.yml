@@ -39,4 +39,8 @@ services:
     depends_on:
       ollama:
         condition: service_healthy
+    # A imagem pode trazer HEALTHCHECK do servidor. Neste container
+    # o processo é o pull e termina; healthcheck o deixaria "starting".
+    healthcheck:
+      disable: true
     entrypoint: ["ollama", "pull", "qwen2.5:1.5b"]

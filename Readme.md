@@ -118,7 +118,7 @@ docker compose up -d --build
 
 O stack na raiz usa `docker-compose.yml` (includes) **e** `docker-compose.override.yml` (volumes fixos, ordem de subida, `OLLAMA_BASE_URL`); o Compose carrega os dois automaticamente — não use só `-f docker-compose.yml`, senão faltam ordem e URL do Ollama.
 
-Sobe de uma vez: Postgres e os três services, os três MCP, o app e o Ollama (com `ollama_pull` baixando `qwen2.5:1.5b`). Na **primeira** execução, espere o pull do modelo terminar antes de usar o juiz Ollama.
+Sobe de uma vez: Postgres e os três services, os três MCP, o app e o Ollama. O `ollama_pull` baixa `qwen2.5:1.5b` em paralelo e o app não fica preso nele. Na primeira vez, espere esse pull terminar antes de usar o juiz Ollama.
 
 Volumes **com nome fixo** (`cookings_pgdata`, `cookings_cache`, `cookings_ollama`) só valem neste compose da raiz. Se você subir apenas `cd services && docker compose up`, o Postgres continua usando o volume com **prefixo da pasta** do projeto — comportamento padrão do Compose, independente do stack unificado.
 

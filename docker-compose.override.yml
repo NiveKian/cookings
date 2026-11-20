@@ -26,6 +26,10 @@ services:
         condition: service_started
 
   app:
+    # Não esperar ollama_pull com service_completed_successfully.
+    # Esse container roda uma vez e sai com 0. Na subida seguinte o
+    # Compose fica em "Waiting" para sempre e o app não inicia.
+    # O pull continua no projeto e baixa o modelo em paralelo.
     depends_on:
       mcp_cursos:
         condition: service_started
@@ -33,7 +37,7 @@ services:
         condition: service_started
       mcp_receitas:
         condition: service_started
-      ollama_pull:
-        condition: service_completed_successfully
+      ollama:
+        condition: service_healthy
     environment:
       OLLAMA_BASE_URL: http://ollama:11434
