@@ -123,7 +123,10 @@ export class OllamaAdapter implements LLMPort {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
         ...(params.signal ? { signal: params.signal } : {}),
-      });
+        // Bun: desliga o timeout padrão de 5 min. Com stream:false o Ollama
+        // não envia nada até terminar; CPU local pode demorar mais que isso.
+        timeout: false,
+      } as RequestInit);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       throw new Error(`Falha de rede ao chamar o Ollama (${url}): ${msg}`);

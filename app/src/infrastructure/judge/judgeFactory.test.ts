@@ -91,6 +91,28 @@ describe("judgeFactory", () => {
     }
   });
 
+  test("juiz ollama ignora JUDGE_TIMEOUT_MS e espera sem limite", async () => {
+    const original = process.env.JUDGE_TIMEOUT_MS;
+    process.env.JUDGE_ENABLED = "true";
+    process.env.JUDGE_PROVIDER = "ollama";
+    process.env.JUDGE_TIMEOUT_MS = "20";
+    process.env.LLM_PROVIDER = "mock";
+    globalThis.fetch = (async () => {
+      await new Promise((r) => setTimeout(r, 60));
+      return new Response(
+        JSON.stringify({ message: { role: "assistant", content: VEREDITO_JSON } }),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      );
+    }) as unknown as typeof fetch;
+    try {
+      const resultado = await createJudgeAdapter().evaluate({ pergunta: "p", resposta: "r", evidencias: [] });
+      expect(resultado.status).toBe("ok");
+    } finally {
+      if (original === undefined) delete process.env.JUDGE_TIMEOUT_MS;
+      else process.env.JUDGE_TIMEOUT_MS = original;
+    }
+  });
+
   test("provider desconhecido não lança e o veredito fica indisponível", async () => {
     process.env.JUDGE_ENABLED = "true";
     process.env.JUDGE_PROVIDER = "desconhecido";

@@ -38,6 +38,7 @@ describe("OllamaAdapter", () => {
     });
 
     expect(adapter.providerName).toBe("ollama");
+    expect((initCapturado as unknown as { timeout?: unknown }).timeout).toBe(false);
     expect(url).toBe("http://127.0.0.1:11434/api/chat");
     expect(initCapturado?.method).toBe("POST");
 

@@ -43,6 +43,30 @@ describe("LLMJudgeAdapter", () => {
     }
   });
 
+  test("Infinity espera um LLM lento, sem timeout", async () => {
+    const llm: LLMPort = {
+      providerName: "lento",
+      converse: () =>
+        new Promise((resolve) =>
+          setTimeout(
+            () =>
+              resolve({
+                type: "text",
+                text: JSON.stringify({
+                  veredito: "aprovar",
+                  notas: { fidelidade: 5, coerencia: 5, seguranca: 5, relevancia: 5, clareza: 5 },
+                  problemas: [],
+                }),
+              }),
+            60
+          )
+        ),
+    };
+    const juiz = new LLMJudgeAdapter(llm, 6000, Infinity);
+    const resultado = await juiz.evaluate({ pergunta: "p", resposta: "r", evidencias: [] });
+    expect(resultado.status).toBe("ok");
+  });
+
   test("saída com notas inteiras e feedback vazio é aceita pelo Zod", async () => {
     const llm: LLMPort = {
       providerName: "fake",

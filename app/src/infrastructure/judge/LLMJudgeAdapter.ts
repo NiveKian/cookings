@@ -101,8 +101,13 @@ export class LLMJudgeAdapter implements JudgePort {
   /**
    * Teto de tempo para a avaliação inteira (inclui a retentativa). Estourou:
    * aborta a chamada (adapters que honram signal) e devolve unavailable.
+   * timeoutMs = Infinity: sem limite, espera o juiz terminar (ex.: Ollama local).
    */
   async evaluate(input: JudgeInput): Promise<JudgeVerdict> {
+    if (this.timeoutMs === Infinity) {
+      // Signal que nunca aborta: o juiz roda até o fim, sem corrida nem timer.
+      return this.avaliar(input, new AbortController().signal);
+    }
     const limiteMs =
       Number.isFinite(this.timeoutMs) && this.timeoutMs > 0 ? this.timeoutMs : TIMEOUT_JUIZ_PADRAO_MS;
     const controle = new AbortController();

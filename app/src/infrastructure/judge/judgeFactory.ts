@@ -13,7 +13,7 @@ export interface JudgeConfig {
   provider: string;
   maxRevisions: number;
   evidenceMaxChars: number;
-  /** Teto da avaliação em ms (JUDGE_TIMEOUT_MS). Estourou = unavailable. */
+  /** Teto da avaliação em ms (JUDGE_TIMEOUT_MS). Estourou = unavailable. Ignorado no ollama. */
   timeoutMs: number;
 }
 
@@ -50,7 +50,10 @@ export function createJudgeAdapter(config: JudgeConfig = readJudgeConfig()): Jud
     return new UnavailableJudgeAdapter();
   }
 
-  return new LLMJudgeAdapter(llm, config.evidenceMaxChars, config.timeoutMs);
+  // Ollama roda em CPU local e é lento; o usuário prefere esperar o veredito.
+  // Sem limite: JUDGE_TIMEOUT_MS só vale para os juízes em nuvem.
+  const timeoutMs = config.provider === "ollama" ? Infinity : config.timeoutMs;
+  return new LLMJudgeAdapter(llm, config.evidenceMaxChars, timeoutMs);
 }
 
 function avisarSeMesmoProvedor(config: JudgeConfig): void {
