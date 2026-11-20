@@ -1,0 +1,39 @@
+# Carregado automaticamente junto com docker-compose.yml na raiz (não é include).
+# Por isso pode mesclar volumes e services já importados pelos includes.
+
+volumes:
+  cookings_pgdata:
+    name: cookings_pgdata
+  cookings_cache:
+    name: cookings_cache
+  cookings_ollama:
+    name: cookings_ollama
+
+services:
+  mcp_cursos:
+    depends_on:
+      service_cursos:
+        condition: service_started
+
+  mcp_matriculas:
+    depends_on:
+      service_matriculas:
+        condition: service_started
+
+  mcp_receitas:
+    depends_on:
+      service_receitas:
+        condition: service_started
+
+  app:
+    depends_on:
+      mcp_cursos:
+        condition: service_started
+      mcp_matriculas:
+        condition: service_started
+      mcp_receitas:
+        condition: service_started
+      ollama_pull:
+        condition: service_completed_successfully
+    environment:
+      OLLAMA_BASE_URL: http://ollama:11434

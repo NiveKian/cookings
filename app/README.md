@@ -92,7 +92,7 @@ Qualquer outra mensagem recebe apenas um eco de texto (sem chamar tools).
 
 ## Juiz, cache, métricas e avaliação
 
-- **Juiz** (`JUDGE_ENABLED=true`, `JUDGE_PROVIDER`): outra LLM (ou `mock`) avalia fidelidade, coerência, segurança, relevância e clareza. Fail-open na entrega, fail-closed no cache.
+- **Juiz** (`JUDGE_ENABLED=true`, `JUDGE_PROVIDER`): outra LLM (ou `mock`) avalia fidelidade, coerência, segurança, relevância e clareza. Fail-open na entrega, fail-closed no cache. `ollama` usa `qwen2.5:1.5b` local (sem chave; não é o `LLM_PROVIDER`).
 - **Cache semântico** (`CACHE_ENABLED=true`, `bun:sqlite`): só pergunta standalone, sem novidade (`invente`/`outra`/`diferente`/`surpreenda`), com juiz aprovando. HIT devolve a resposta sem chamar a LLM principal.
 - **`GET /api/metrics`**: contadores em memória do processo (hits, misses, LLM evitadas, vereditos, média das notas, latência com/sem cache). Zera ao reiniciar. Sem chat ainda, tudo 0.
 - **Log JSONL** (`EVAL_LOG_PATH`): uma linha por resposta. Vazio no `.env.example` = desligado. Falha de disco não derruba o chat.

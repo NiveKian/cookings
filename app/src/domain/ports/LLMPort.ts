@@ -53,7 +53,7 @@ export type ConversationTurn =
   | { role: "tool_results"; results: Array<{ toolCallId: string; name: string; result: unknown }> };
 
 export interface LLMPort {
-  /** Nome do provedor, só para logs/debug (ex: "gemini", "claude", "gpt", "mock"). */
+  /** Nome do provedor, só para logs/debug (ex: "gemini", "claude", "gpt", "mock", "ollama"). */
   readonly providerName: string;
 
   converse(params: {

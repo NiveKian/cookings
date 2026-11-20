@@ -1,5 +1,5 @@
 // Porta do juiz (LLM as a judge). A aplicação só conhece esta interface;
-// o provedor concreto (mock, Gemini, Claude, GPT) fica na infraestrutura.
+// o provedor concreto (mock, Gemini, Claude, GPT, Ollama) fica na infraestrutura.
 
 export interface Evidencia {
   tool: string;

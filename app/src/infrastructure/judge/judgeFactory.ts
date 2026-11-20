@@ -4,6 +4,7 @@ import type { LLMPort } from "../../domain/ports/LLMPort";
 import { GeminiAdapter } from "../llm/GeminiAdapter";
 import { ClaudeAdapter } from "../llm/ClaudeAdapter";
 import { GptAdapter } from "../llm/GptAdapter";
+import { OllamaAdapter, urlSemBarraFinal } from "../llm/OllamaAdapter";
 import { LLMJudgeAdapter } from "./LLMJudgeAdapter";
 import { MockJudgeAdapter } from "./MockJudgeAdapter";
 
@@ -80,6 +81,11 @@ function tentarCriarLlmDoJuiz(provider: string, modelRaw: string | undefined): L
         return null;
       }
       return new GeminiAdapter(apiKey, model ?? "gemini-flash-latest");
+    }
+    case "ollama": {
+      // Sem chave. URL e modelo vazios caem no padrão local.
+      const baseUrl = urlSemBarraFinal(process.env.OLLAMA_BASE_URL, "http://127.0.0.1:11434");
+      return new OllamaAdapter(baseUrl, model ?? "qwen2.5:1.5b");
     }
     default:
       console.warn(`[judge] JUDGE_PROVIDER desconhecido (${provider}); juiz indisponível.`);

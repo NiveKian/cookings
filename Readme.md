@@ -107,6 +107,27 @@ cp app/.env.example app/.env
 
 > No `.env` do `app`, defina `LLM_PROVIDER` (`gemini`, `claude` ou `gpt`) e a respectiva API key.
 
+### Subir tudo pela raiz (atalho)
+
+Na raiz do repositório, com a rede criada e os `.env` copiados (passos 1 e 2):
+
+```bash
+docker network create cookings-network
+docker compose up -d --build
+```
+
+O stack na raiz usa `docker-compose.yml` (includes) **e** `docker-compose.override.yml` (volumes fixos, ordem de subida, `OLLAMA_BASE_URL`); o Compose carrega os dois automaticamente — não use só `-f docker-compose.yml`, senão faltam ordem e URL do Ollama.
+
+Sobe de uma vez: Postgres e os três services, os três MCP, o app e o Ollama (com `ollama_pull` baixando `qwen2.5:1.5b`). Na **primeira** execução, espere o pull do modelo terminar antes de usar o juiz Ollama.
+
+Volumes **com nome fixo** (`cookings_pgdata`, `cookings_cache`, `cookings_ollama`) só valem neste compose da raiz. Se você subir apenas `cd services && docker compose up`, o Postgres continua usando o volume com **prefixo da pasta** do projeto — comportamento padrão do Compose, independente do stack unificado.
+
+**Atenção:** `docker compose down -v` na raiz apaga banco, cache sqlite e modelos Ollama desses volumes nomeados. Não rode sem intenção.
+
+Não suba ao mesmo tempo o compose da raiz e o de uma subpasta: os `container_name` colidem.
+
+Os passos abaixo continuam válidos para subir ou desenvolver **uma parte** do projeto.
+
 ### 3. Subir os serviços (`services`)
 
 ```bash
@@ -142,6 +163,17 @@ cd app
 docker compose up -d
 ```
 
+### 6. (Opcional) Juiz local — `ollama/`
+
+Quarto compose, só para o juiz (`JUDGE_PROVIDER=ollama`). Não substitui o LLM principal.
+
+```bash
+cd ollama
+docker compose up -d
+```
+
+Na primeira vez o serviço `ollama_pull` baixa `qwen2.5:1.5b` e pode demorar. URL na rede Docker: `http://ollama:11434`. No Bun do host: `http://127.0.0.1:11434` (`OLLAMA_BASE_URL`).
+
 ---
 
 ## Estrutura de Pastas Completa
@@ -163,6 +195,10 @@ cookings/
 │   ├── mcp_cursos/
 │   ├── mcp_matriculas/
 │   └── mcp_receitas/
+│
+├── ollama/
+│   ├── docker-compose.yml
+│   └── README.md
 │
 ├── app/
 │   ├── src/

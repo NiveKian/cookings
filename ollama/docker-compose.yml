@@ -1,0 +1,42 @@
+# Juiz local opcional (Ollama). GPU não é obrigatória.
+# Sobe o servidor e baixa qwen2.5:1.5b no volume.
+# O app na rede usa http://ollama:11434 (nome do serviço).
+#
+# Rede externa compartilhada com services / mcp / app.
+# Criar uma vez: docker network create cookings-network
+
+networks:
+  default:
+    name: cookings-network
+    external: true
+
+volumes:
+  cookings_ollama:
+
+services:
+  ollama:
+    image: ollama/ollama
+    container_name: cookings_ollama
+    restart: unless-stopped
+    ports:
+      - "11434:11434"
+    volumes:
+      - cookings_ollama:/root/.ollama
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 15s
+
+  # Dispara o pull na API do serviço ollama; os blobs ficam no volume acima.
+  ollama_pull:
+    image: ollama/ollama
+    container_name: cookings_ollama_pull
+    restart: "no"
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+    depends_on:
+      ollama:
+        condition: service_healthy
+    entrypoint: ["ollama", "pull", "qwen2.5:1.5b"]
