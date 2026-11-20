@@ -96,6 +96,7 @@ Exigem o seed novo (colunas `alergenos` e `origem`, tabela `substituicoes`): em 
 | Endpoint | O que faz |
 |---|---|
 | `GET /receitas?ingrediente=...&modo=todos\|qualquer` | Filtra por nomes de ingredientes (sem acento/caixa). `ingrediente` repetível ou separado por vírgula. `modo` padrão `qualquer`; sem `ingrediente`, `modo` é ignorado. Cada receita traz `origem` (`curso` ou `ia`). |
+| `GET /receitas?nome=...` | Filtra por trecho do nome da receita (sem acento/caixa). Combina com `cursoId`, `aulaId`, `ingrediente`, `modo`, `limit` e `offset`. |
 | `GET /ingredientes`, `GET /receitas/:id` | Cada ingrediente traz `alergenos` (`gluten`, `lactose`, `ovo`, `soja`, `amendoim`, `castanhas`, `peixe`, `crustaceos`). |
 | `POST /ingredientes` | Aceita `alergenos` opcional (padrão `[]`). 409 se o nome já existe. |
 | `GET /ingredientes/:id/substituicoes` | Substituições conhecidas (lista vazia se não houver). 404 se o ingrediente não existe. |

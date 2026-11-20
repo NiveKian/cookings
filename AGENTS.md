@@ -50,7 +50,7 @@ Seed: `services/db/init/001_seed.sql`. O Postgres só executa `db/init/` com vol
 
 ### app
 
-- Chat: `ui/ChatTab` → `POST /api/chat` → `answerQuestion` (cache semântico → `sendChatMessage` loop `MAX_TOOL_ITERATIONS = 5` → juiz) → `LLMPort.converse` → `McpToolsAdapter` → MCP → services. Resposta `{ reply, toolCallsExecuted, evidencias, judge, cache }`. HIT de cache não chama a LLM principal.
+- Chat: `ui/ChatTab` → `POST /api/chat` → `answerQuestion` (cache semântico → `sendChatMessage` loop `MAX_TOOL_ITERATIONS = 8` → juiz) → `LLMPort.converse` → `McpToolsAdapter` → MCP → services. Resposta `{ reply, toolCallsExecuted, evidencias, judge, cache }`. HIT de cache não chama a LLM principal.
 - Tools novas no MCP (receitas/cursos/matrículas) entram na lista de tools do loop; mutáveis invalidam o cache do domínio (`domain/toolPolicy.ts`).
 - Juiz (`JUDGE_*`) e embeddings (`EMBEDDING_*`) são portas próprias; provedor ≠ `LLM_PROVIDER`. Mock para esteira sem chave. O juiz aceita `JUDGE_PROVIDER=ollama` (`qwen2.5:1.5b` em `ollama/`); ollama não é `LLM_PROVIDER`.
 - Estado do chat fica em `ui/App.tsx` (sobrevive à troca de aba). Persistência opcional em `localStorage` (`ChatHistoryStorage.ts`), com consentimento. Histórico antigo `{role, content}` continua válido; metadados (cache/juiz) são opcionais.

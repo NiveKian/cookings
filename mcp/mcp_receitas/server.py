@@ -139,16 +139,25 @@ def _validar_porcoes(receita: dict, porcoes: int) -> dict | None:
 # ---------------------------------------------------------------------------
 
 @mcp.tool()
-async def listar_receitas(curso_id: Optional[str] = None, aula_id: Optional[str] = None) -> dict | list:
-    """Lista TODAS as receitas do Cookings (percorre todas as páginas),
-    opcionalmente filtrando por curso e/ou aula. Cada receita traz `origem`
-    ("curso" ou "ia").
+async def listar_receitas(
+    curso_id: Optional[str] = None,
+    aula_id: Optional[str] = None,
+    nome: Optional[str] = None,
+) -> dict | list:
+    """Lista as receitas do Cookings (percorre todas as páginas),
+    opcionalmente filtrando por curso, aula e/ou nome. Cada receita traz
+    `origem` ("curso" ou "ia").
+
+    Quando o usuário citar uma receita pelo nome (ex: "feijoada"), passe `nome`
+    para receber só as receitas correspondentes, em vez da lista inteira. Os IDs
+    devem ser copiados EXATAMENTE como vieram no resultado, caractere a caractere.
 
     Args:
         curso_id: ID (UUID) do curso ao qual as receitas pertencem.
         aula_id: ID (UUID) da aula à qual as receitas pertencem.
+        nome: trecho do nome da receita (sem diferenciar acento ou maiúsculas).
     """
-    params = {k: v for k, v in {"cursoId": curso_id, "aulaId": aula_id}.items() if v}
+    params = {k: v for k, v in {"cursoId": curso_id, "aulaId": aula_id, "nome": nome}.items() if v}
     return await _paginar("/receitas", params)
 
 
