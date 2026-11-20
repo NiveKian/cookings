@@ -2,6 +2,8 @@ import { describe, expect, test } from "bun:test";
 import { answerQuestion, AVISO_RESPOSTA_NAO_VERIFICADA } from "./answerQuestion";
 import { MockAdapter } from "../../infrastructure/llm/MockAdapter";
 import { MockJudgeAdapter } from "../../infrastructure/judge/MockJudgeAdapter";
+import { LLMJudgeAdapter } from "../../infrastructure/judge/LLMJudgeAdapter";
+import { RelevanceJudgeAdapter } from "../../infrastructure/judge/RelevanceJudgeAdapter";
 import { MockEmbeddingAdapter } from "../../infrastructure/embeddings/MockEmbeddingAdapter";
 import type { ToolsPort } from "../../domain/ports/ToolsPort";
 import type { LLMPort } from "../../domain/ports/LLMPort";
@@ -62,6 +64,42 @@ function countingLlm(): LLMPort & { converseCalls: number } {
 }
 
 describe("answerQuestion", () => {
+  test("aviso de reprovação tem o texto novo", () => {
+    expect(AVISO_RESPOSTA_NAO_VERIFICADA).toBe("Aviso: o juiz não aprovou esta resposta.");
+  });
+
+  test("timeout do juiz entrega a resposta como unavailable, sem aviso e sem gravar cache", async () => {
+    const juizLento: LLMPort = {
+      providerName: "lento",
+      converse: (params) =>
+        new Promise<never>((_resolve, reject) => {
+          params.signal?.addEventListener("abort", () => reject(new Error("abortado")));
+        }),
+    };
+    const cache = new SpyCache();
+    const warnOriginal = console.warn;
+    console.warn = () => {};
+    try {
+      const resultado = await answerQuestion(
+        {
+          ...deps(),
+          judge: new LLMJudgeAdapter(juizLento, 6000, 20),
+          cacheEnabled: true,
+          cache,
+          embedding: new MockEmbeddingAdapter(),
+        },
+        [{ role: "user", content: "como fazer batata frita rustica?" }]
+      );
+
+      expect(resultado.reply).not.toContain(AVISO_RESPOSTA_NAO_VERIFICADA);
+      expect(resultado.judge.status).toBe("unavailable");
+      expect(resultado.cache.motivo).toBe("juiz-indisponivel");
+      expect(cache.stores).toBe(0);
+    } finally {
+      console.warn = warnOriginal;
+    }
+  });
+
   test("resposta normal aprova de primeira, sem aviso, cache sem-cache", async () => {
     const resultado = await answerQuestion(deps(), [{ role: "user", content: "quais cursos tem?" }]);
 
@@ -207,5 +245,23 @@ describe("answerQuestion", () => {
     expect(cache.invalidacoes).toEqual([["receitas"]]);
     expect(cache.stores).toBe(0);
     expect(resultado.cache.motivo).toBe("mutavel");
+  });
+
+  test("juiz leve fora do tema regenera uma vez e termina reprovar com modo e motivo", async () => {
+    const llmJuiz: LLMPort = {
+      providerName: "fake",
+      converse: async () => ({ type: "text", text: JSON.stringify({ motivo: "fala de cursos", atende: false }) }),
+    };
+    const llm = countingLlm();
+    const resultado = await answerQuestion(
+      { ...deps(), llm, judge: new RelevanceJudgeAdapter(llmJuiz) },
+      [{ role: "user", content: "quais ingredientes leva a feijoada?" }]
+    );
+
+    expect(llm.converseCalls).toBe(2);
+    expect(resultado.reply.endsWith(AVISO_RESPOSTA_NAO_VERIFICADA)).toBe(true);
+    expect(resultado.judge.veredito).toBe("reprovar");
+    expect(resultado.judge.modo).toBe("relevancia");
+    expect(resultado.judge.motivo).toBe("fala de cursos");
   });
 });

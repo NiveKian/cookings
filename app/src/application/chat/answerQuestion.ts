@@ -17,7 +17,7 @@ import {
   normalizarPergunta,
 } from "./cacheRules";
 
-export const AVISO_RESPOSTA_NAO_VERIFICADA = "Aviso: esta resposta não foi totalmente verificada.";
+export const AVISO_RESPOSTA_NAO_VERIFICADA = "Aviso: o juiz não aprovou esta resposta.";
 
 export interface AnswerQuestionDeps {
   llm: LLMPort;

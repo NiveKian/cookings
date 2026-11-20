@@ -8,13 +8,14 @@ Planeje, revise e integre. Implementação de código vai para subagentes Opus o
 
 ## Mapa
 
-Três compose independentes na rede Docker externa `cookings-network` (`docker network create cookings-network` uma vez).
+Quatro composes por pasta na rede Docker externa `cookings-network` (`docker network create cookings-network` uma vez); na **raiz**, `docker-compose.yml` (include) + `docker-compose.override.yml` (mescla automática; não subir só com `-f` no primeiro) unem services, mcp, app e ollama — `docker compose down -v` **na raiz** apaga volumes (Postgres, cache, modelos Ollama).
 
 | Pasta | Stack | Papel | Portas no host |
 |---|---|---|---|
 | `services/` | Bun, Hono, Drizzle, Zod, PostgreSQL 16 | Fonte da verdade | 3001 cursos, 3002 matrículas, 3003 receitas, 5432 Postgres (`cookings_db`) |
 | `mcp/` | Python, uv, FastMCP `streamable-http`, httpx | Tradutor MCP → HTTP. Sem acesso direto ao banco | 8001 cursos, 8002 matrículas, 8003 receitas (container escuta 8000) |
 | `app/` | React, Vite, Tailwind, backend Bun/Hono | Aba Informações (REST no navegador) e aba Chatbot (`POST /api/chat`) | 5173 Vite, 3000 API |
+| `ollama/` | Ollama `qwen2.5:1.5b` | Juiz local opcional. Não é `LLM_PROVIDER` | 11434 |
 
 Um Postgres, três schemas: `cursos`, `matriculas`, `receitas`. Cada `service_*` só fala com o próprio schema. UUID entre schemas não tem `FOREIGN KEY`.
 
@@ -49,15 +50,15 @@ Seed: `services/db/init/001_seed.sql`. O Postgres só executa `db/init/` com vol
 
 ### app
 
-- Chat: `ui/ChatTab` → `POST /api/chat` → `answerQuestion` (cache semântico → `sendChatMessage` loop `MAX_TOOL_ITERATIONS = 5` → juiz) → `LLMPort.converse` → `McpToolsAdapter` → MCP → services. Resposta `{ reply, toolCallsExecuted, evidencias, judge, cache }`. HIT de cache não chama a LLM principal.
+- Chat: `ui/ChatTab` → `POST /api/chat` → `answerQuestion` (cache semântico → `sendChatMessage` loop `MAX_TOOL_ITERATIONS = 8` → juiz) → `LLMPort.converse` → `McpToolsAdapter` → MCP → services. Resposta `{ reply, toolCallsExecuted, evidencias, judge, cache }`. HIT de cache não chama a LLM principal.
 - Tools novas no MCP (receitas/cursos/matrículas) entram na lista de tools do loop; mutáveis invalidam o cache do domínio (`domain/toolPolicy.ts`).
-- Juiz (`JUDGE_*`) e embeddings (`EMBEDDING_*`) são portas próprias; provedor ≠ `LLM_PROVIDER`. Mock para esteira sem chave.
+- Juiz (`JUDGE_*`) e embeddings (`EMBEDDING_*`) são portas próprias; provedor ≠ `LLM_PROVIDER`. Mock para esteira sem chave. O juiz aceita `JUDGE_PROVIDER=ollama` (`qwen2.5:1.5b` em `ollama/`); ollama não é `LLM_PROVIDER`. O juiz Ollama manda `format` (JSON schema do veredito), `temperature: 0` e `keep_alive`. `JUDGE_TIMEOUT_MS` (padrão 60000) vale para qualquer provedor do juiz: estourou, aborta e vira indisponível. Não vale para `ollama` (espera sem limite; o app também usa `idleTimeout: 0` e `timeout: false` no fetch). `JUDGE_MODE` (`completo` | `relevancia`, lido em `judgeFactory.ts`): padrão `relevancia` com ollama (`RelevanceJudgeAdapter`, JSON `{motivo, atende}`, sem evidências), `completo` nos demais. O veredito leva `modo` e `motivo` opcionais até a UI.
 - Estado do chat fica em `ui/App.tsx` (sobrevive à troca de aba). Persistência opcional em `localStorage` (`ChatHistoryStorage.ts`), com consentimento. Histórico antigo `{role, content}` continua válido; metadados (cache/juiz) são opcionais.
-- UI: texto puro (`whitespace-pre-wrap`), selo "resposta do cache (similaridade X)" e `<details>` do juiz. Sem markdown.
+- UI: texto puro (`whitespace-pre-wrap`), selo de origem ("Gerado por AI" azul / "Resposta do Cache" cinza, detalhe como similaridade e motivo no tooltip `title`) e `<details>` do juiz colorido por veredito (aprovada verde, revisar âmbar, reprovada vermelho, indisponível cinza), oculto em HIT de cache. Sem markdown.
 - `GET /api/metrics`: contadores em memória. `EVAL_LOG_PATH`: JSONL por resposta (opcional).
 - Front da aba Informações chama os services no navegador (`VITE_SERVICE_*_URL`, localhost publicado). Hostname interno de container não resolve no browser.
 - URLs MCP: `server.ts` usa `MCP_*_URL` e, se `APP_ENV=local` (script `dev:server`), `MCP_*_URL_DEV`.
-- Adapters LLM: `GeminiAdapter`, `ClaudeAdapter`, `GptAdapter`, `MockAdapter`. Gemini fica com um modelo (`GEMINI_MODEL`, padrão `gemini-flash-latest`). Claude e GPT aceitam lista separada por vírgula (`CLAUDE_MODEL`, `OPENAI_MODEL`): só HTTP 404 troca de modelo. 401/403/400 não trocam. 429/503 (e 529 no Claude) fazem retry com backoff no mesmo modelo.
+- Adapters LLM: `GeminiAdapter`, `ClaudeAdapter`, `GptAdapter`, `MockAdapter`. `OllamaAdapter` não entra em `llmFactory.ts`. Gemini fica com um modelo (`GEMINI_MODEL`, padrão `gemini-flash-latest`). Claude e GPT aceitam lista separada por vírgula (`CLAUDE_MODEL`, `OPENAI_MODEL`): só HTTP 404 troca de modelo. 401/403/400 não trocam. 429/503 (e 529 no Claude) fazem retry com backoff no mesmo modelo.
 - Gemini: `functionResponse.response` tem de ser objeto; `thoughtSignature` volta igual, sem edição. Lista vazia de tool MCP pode chegar como `null`; lista de um item pode chegar como objeto.
 - Contar pergunta do usuário: só `role === "user"`. A saudação inicial do assistente entra no histórico.
 

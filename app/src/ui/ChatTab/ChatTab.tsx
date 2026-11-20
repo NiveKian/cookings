@@ -104,38 +104,143 @@ export default function ChatTab({ mensagens, setMensagens }: ChatTabProps) {
   );
 }
 
-/** Selo de cache e juiz em texto puro (sem markdown). */
+/** Selo de origem e juiz em texto puro (sem markdown). */
 function MetadadosAssistente({ mensagem }: { mensagem: ChatMessage }) {
-  const selo = mensagem.cache?.usado ? seloCache(mensagem.cache) : null;
-  const judge = mensagem.judge;
+  const selo = mensagem.cache ? seloOrigem(mensagem.cache) : null;
+  // Em acerto de cache o juiz não rodou: a caixa some.
+  const judge = mensagem.cache?.usado === true ? undefined : mensagem.judge;
+  const estado = judge ? estadoJuiz(judge) : null;
 
   if (!selo && !judge) return null;
 
   return (
     <div className="mt-2 space-y-1 text-[11px] text-neutral-500">
-      {selo ? <p>{selo}</p> : null}
-      {judge ? (
+      {selo ? (
+        <p>
+          <span
+            title={selo.detalhe}
+            className={`inline-block rounded px-1.5 py-0.5 text-[11px] font-medium ${
+              selo.deCache ? "bg-neutral-100 text-neutral-500" : "bg-sky-50 text-sky-700"
+            }`}
+          >
+            {selo.texto}
+          </span>
+        </p>
+      ) : null}
+      {judge && estado ? (
         <details>
-          <summary className="cursor-pointer">juiz: {judge.veredito}</summary>
-          <p className="mt-1">{textoNotas(judge)}</p>
+          <summary className="cursor-pointer">
+            <span className={`rounded px-1.5 py-0.5 text-[11px] font-medium ${estado.cor}`}>
+              {estado.texto}
+            </span>
+          </summary>
+          {judge.status === "unavailable" ? (
+            <p className="mt-1">O juiz não rodou; a resposta não foi avaliada.</p>
+          ) : judge.modo === "relevancia" ? (
+            <div className="mt-1 space-y-1">
+              {linhasRelevancia(judge).map((l) => (
+                <p key={l}>{l}</p>
+              ))}
+            </div>
+          ) : (
+            <div className="mt-1 space-y-1">
+              <ul className="list-disc pl-4">
+                {linhasNotas(judge).map((l) => (
+                  <li key={l}>{l}</li>
+                ))}
+              </ul>
+              <p>Notas de 1 a 5. Aprova com todas &gt;= 4 e sem problema bloqueante.</p>
+              {judge.problemas && judge.problemas.length > 0 ? (
+                <ul className="list-disc pl-4">
+                  {judge.problemas.map((p, i) => (
+                    <li key={i}>
+                      {p.criterio}: {p.descricao}
+                      {p.bloqueante ? " (bloqueante)" : ""}
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+            </div>
+          )}
         </details>
       ) : null}
     </div>
   );
 }
 
-function seloCache(cache: ChatCacheMeta): string {
-  if (typeof cache.similaridade === "number" && Number.isFinite(cache.similaridade)) {
-    return `resposta do cache (similaridade ${cache.similaridade.toFixed(2)})`;
+const MOTIVOS_SEM_HIT: Record<string, string> = {
+  miss: "gravada no cache",
+  "juiz-indisponivel": "não gravada no cache: juiz indisponível",
+  reprovado: "não gravada no cache: juiz não aprovou",
+  "nao-standalone": "não gravada no cache: só a 1ª pergunta da conversa usa o cache",
+  novidade: "não gravada no cache: pedido de algo novo",
+  mutavel: "não gravada no cache: ação que altera dados",
+  "sem-cache": "cache desligado",
+};
+
+/** Origem da resposta (cache semântico ou IA) em texto puro. */
+export function seloOrigem(cache: ChatCacheMeta): {
+  texto: string;
+  detalhe: string;
+  deCache: boolean;
+} {
+  if (cache.usado) {
+    const sim =
+      typeof cache.similaridade === "number" && Number.isFinite(cache.similaridade)
+        ? `similaridade ${cache.similaridade.toFixed(2)} · `
+        : "";
+    return {
+      texto: "Resposta do Cache",
+      detalhe: `${sim}sem chamada à IA nem ao juiz`,
+      deCache: true,
+    };
   }
-  return "resposta do cache";
+  const motivo = MOTIVOS_SEM_HIT[cache.motivo] ?? cache.motivo;
+  return { texto: "Gerado por AI", detalhe: motivo, deCache: false };
 }
 
-function textoNotas(judge: ChatJudgeMeta): string {
+/** Texto e cor (classes Tailwind) do resumo do juiz, conforme o estado. */
+export function estadoJuiz(judge: ChatJudgeMeta): { texto: string; cor: string } {
+  if (judge.status === "unavailable") {
+    return { texto: "juiz: indisponível", cor: "bg-neutral-100 text-neutral-500" };
+  }
+  if (judge.modo === "relevancia") {
+    // Juiz leve: o texto fala de tema, não de aprovação por notas.
+    switch (judge.veredito) {
+      case "aprovar":
+        return { texto: "juiz: no tema", cor: "bg-emerald-50 text-emerald-700" };
+      case "revisar":
+        return { texto: "juiz: revisar", cor: "bg-amber-50 text-amber-700" };
+      default:
+        return { texto: "juiz: fora do tema", cor: "bg-red-50 text-red-700" };
+    }
+  }
+  switch (judge.veredito) {
+    case "aprovar":
+      return { texto: "juiz: aprovada", cor: "bg-emerald-50 text-emerald-700" };
+    case "revisar":
+      return { texto: "juiz: revisar", cor: "bg-amber-50 text-amber-700" };
+    default:
+      return { texto: "juiz: reprovada", cor: "bg-red-50 text-red-700" };
+  }
+}
+
+/** Detalhe do juiz leve: o que ele confere e o motivo (sem notas). */
+export function linhasRelevancia(judge: ChatJudgeMeta): string[] {
+  const linhas = ["Juiz leve: confere só se a resposta atende ao que foi pedido."];
+  const motivo = judge.motivo?.trim();
+  if (motivo) linhas.push(`Motivo: ${motivo}`);
+  return linhas;
+}
+
+/** Uma linha por critério: nota e o que o critério mede. */
+export function linhasNotas(judge: ChatJudgeMeta): string[] {
   const n = judge.notas;
-  if (!n) return "";
-  return (
-    `fidelidade ${n.fidelidade}, coerência ${n.coerencia}, ` +
-    `segurança ${n.seguranca}, relevância ${n.relevancia}, clareza ${n.clareza}`
-  );
+  return [
+    `fidelidade ${n.fidelidade}/5 — bate com o que as ferramentas devolveram`,
+    `coerência ${n.coerencia}/5 — receita ou orientação viável`,
+    `segurança ${n.seguranca}/5 — segurança alimentar e alérgenos`,
+    `relevância ${n.relevancia}/5 — responde à pergunta`,
+    `clareza ${n.clareza}/5 — texto claro, sem enrolação`,
+  ];
 }

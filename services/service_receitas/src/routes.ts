@@ -5,7 +5,7 @@ import { z } from "zod";
 import { eq, and, asc, inArray, sql } from "drizzle-orm";
 import { db } from "./db";
 import { ingredientes, receitas, receitaIngredientes, substituicoes } from "./schema";
-import { ACENTOS_DE, ACENTOS_PARA, montarListaDeNomes } from "./texto";
+import { ACENTOS_DE, ACENTOS_PARA, montarListaDeNomes, semAcento } from "./texto";
 
 export const routes = new Hono();
 
@@ -45,6 +45,8 @@ const receitaListQuerySchema = listQuerySchema.extend({
   // e/ou separado por vírgula (?ingrediente=a,b).
   ingrediente: z.union([z.string(), z.array(z.string())]).optional(),
   modo: z.enum(["todos", "qualquer"]).default("qualquer"),
+  // Trecho do nome da receita (sem acento/caixa).
+  nome: z.string().min(1).optional(),
 });
 
 const receitaCreateSchema = z
@@ -73,6 +75,9 @@ const idParamSchema = z.object({ id: z.string().uuid() });
 // Expressão SQL: nome do ingrediente sem acento e em minúsculo
 // (sem a extensão unaccent, que pode faltar na imagem alpine).
 const nomeNormalizado = sql`lower(translate(${ingredientes.nome}, ${sql.raw(`'${ACENTOS_DE}'`)}, ${sql.raw(`'${ACENTOS_PARA}'`)}))`;
+
+// Mesma ideia para o nome da receita (filtro `nome`).
+const nomeReceitaNormalizado = sql`lower(translate(${receitas.nome}, ${sql.raw(`'${ACENTOS_DE}'`)}, ${sql.raw(`'${ACENTOS_PARA}'`)}))`;
 
 const receitaIngredienteCreateSchema = z.object({
   ingredienteId: z.string().uuid(),
@@ -119,11 +124,17 @@ routes.get("/ingredientes/:id/substituicoes", zValidator("param", idParamSchema)
 // ---------------------------------------------------------------------------
 
 routes.get("/receitas", zValidator("query", receitaListQuerySchema), async (c) => {
-  const { cursoId, aulaId, ingrediente, modo, limit, offset } = c.req.valid("query");
+  const { cursoId, aulaId, ingrediente, modo, nome, limit, offset } = c.req.valid("query");
 
   const condicoes = [];
   if (cursoId) condicoes.push(eq(receitas.cursoId, cursoId));
   if (aulaId) condicoes.push(eq(receitas.aulaId, aulaId));
+
+  // Filtro por trecho do nome: escapa \, % e _ para valerem como texto literal.
+  if (nome) {
+    const termo = semAcento(nome.trim()).replace(/[\\%_]/g, "\\$&");
+    if (termo) condicoes.push(sql`${nomeReceitaNormalizado} like ${`%${termo}%`}`);
+  }
 
   // Filtro por ingredientes (sem acento/caixa). Sem nomes, `modo` é ignorado.
   // "qualquer": receita com ao menos um dos nomes; "todos": com todos eles.

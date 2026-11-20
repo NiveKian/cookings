@@ -10,7 +10,7 @@ Nenhum destes servidores acessa o banco de dados diretamente — cada um é um t
 |---|---|---|---|
 | `mcp_cursos` | `8001` | `service_cursos` (`3001`) | `listar_cursos`, `obter_curso`, `listar_aulas_do_curso`, `criar_curso`, `criar_aula`, `buscar_cursos_por_texto` |
 | `mcp_matriculas` | `8002` | `service_matriculas` (`3002`) | `listar_alunos`, `obter_aluno`, `cadastrar_aluno`, `listar_matriculas`, `obter_matricula`, `matricular_aluno`, `atualizar_progresso_matricula`, `resumo_progresso_aluno` |
-| `mcp_receitas` | `8003` | `service_receitas` (`3003`) | `listar_receitas`, `obter_receita`, `criar_receita`, `listar_ingredientes`, `adicionar_ingrediente_a_receita`, `buscar_receitas_por_ingredientes`, `verificar_alergenos`, `ajustar_porcoes`, `gerar_lista_de_compras`, `salvar_receita_gerada`, `sugerir_substituicoes` |
+| `mcp_receitas` | `8003` | `service_receitas` (`3003`) | `listar_receitas` (filtros opcionais `curso_id`, `aula_id`, `nome`), `obter_receita`, `criar_receita`, `listar_ingredientes`, `adicionar_ingrediente_a_receita`, `buscar_receitas_por_ingredientes`, `verificar_alergenos`, `ajustar_porcoes`, `gerar_lista_de_compras`, `salvar_receita_gerada`, `sugerir_substituicoes` |
 
 Listagens percorrem todas as páginas (`limit=200`). Tools que só calculam (`ajustar_porcoes`, `gerar_lista_de_compras`, `verificar_alergenos`, `buscar_*`, `sugerir_substituicoes`) não gravam. `salvar_receita_gerada` grava com `origem=ia`.
 

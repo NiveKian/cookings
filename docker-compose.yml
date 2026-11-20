@@ -1,0 +1,27 @@
+# Stack Cookings unificado (Compose v2 include).
+# Rede externa — criar uma vez antes do primeiro up:
+#   docker network create cookings-network
+#
+# Volumes com nome fixo e depends_on estão em docker-compose.override.yml
+# (mescla automática; não colocar services/volumes aqui — conflita com include).
+# Subindo só `cd services && docker compose up`, o Postgres usa volume com
+# prefixo da pasta do projeto (comportamento padrão).
+#
+# AVISO: `docker compose down -v` na raiz apaga os volumes deste projeto
+# (Postgres, cache sqlite, modelos Ollama). Não rode esse comando sem querer.
+#
+# Não suba ao mesmo tempo o compose da raiz e o de uma subpasta — os
+# container_name colidem (ex.: cookings_db, service_cursos, cookings_app).
+
+name: cookings
+
+include:
+  - path: services/docker-compose.yml
+    project_directory: services
+  - path: mcp/docker-compose.yml
+    project_directory: mcp
+  - path: app/docker-compose.yml
+    project_directory: app
+    env_file: app/.env
+  - path: ollama/docker-compose.yml
+    project_directory: ollama

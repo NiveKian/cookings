@@ -1,5 +1,5 @@
 // Porta do juiz (LLM as a judge). A aplicação só conhece esta interface;
-// o provedor concreto (mock, Gemini, Claude, GPT) fica na infraestrutura.
+// o provedor concreto (mock, Gemini, Claude, GPT, Ollama) fica na infraestrutura.
 
 export interface Evidencia {
   tool: string;
@@ -33,6 +33,14 @@ export interface JudgeVerdict {
   notas: JudgeNotas;
   problemas: JudgeProblema[];
   feedbackParaRegeneracao?: string;
+  /**
+   * Como o juiz avaliou. "completo": cinco critérios com notas.
+   * "relevancia": só confere se a resposta atende ao que foi pedido.
+   * Ausente = completo (vereditos antigos).
+   */
+  modo?: "completo" | "relevancia";
+  /** Frase curta do juiz explicando o veredito (modo relevância). */
+  motivo?: string;
 }
 
 export interface JudgePort {

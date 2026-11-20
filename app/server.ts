@@ -124,6 +124,9 @@ console.log(
 export default {
   port,
   fetch: app.fetch,
+  // Bun.serve fecha conexões ociosas após 10 s por padrão; 0 desliga.
+  // O juiz Ollama pode demorar minutos e /api/chat espera o veredito.
+  idleTimeout: 0,
 };
 
 /** Só a string "true" liga o cache. Limiar padrão 0.9; TTL padrão 60 min. */

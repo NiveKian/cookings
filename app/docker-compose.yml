@@ -23,6 +23,11 @@ services:
     restart: unless-stopped
     env_file:
       - ./.env
+    environment:
+      # Dentro do container, 127.0.0.1 é o próprio app. O Ollama do juiz
+      # responde pelo hostname "ollama" na rede cookings-network.
+      # Sobrescreve o OLLAMA_BASE_URL do .env (pensado para rodar fora do Docker).
+      OLLAMA_BASE_URL: http://ollama:11434
     ports:
       - "3000:3000"
     volumes:

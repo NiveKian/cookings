@@ -125,7 +125,20 @@ function parseJudge(raw: unknown): ChatJudgeMeta | undefined {
   }
   const notas = parseNotas(o.notas);
   if (!notas) return undefined;
-  return { status: o.status, veredito: o.veredito, notas };
+  const judge: ChatJudgeMeta = { status: o.status, veredito: o.veredito, notas };
+  // Opcional: histórico antigo não tem "problemas".
+  if (Array.isArray(o.problemas)) {
+    judge.problemas = o.problemas.flatMap((p) => {
+      if (!p || typeof p !== "object") return [];
+      const r = p as Record<string, unknown>;
+      if (typeof r.criterio !== "string" || typeof r.descricao !== "string") return [];
+      return [{ criterio: r.criterio, descricao: r.descricao, bloqueante: r.bloqueante === true }];
+    });
+  }
+  // Opcionais: histórico antigo não tem "modo" nem "motivo".
+  if (o.modo === "completo" || o.modo === "relevancia") judge.modo = o.modo;
+  if (typeof o.motivo === "string") judge.motivo = o.motivo;
+  return judge;
 }
 
 function parseNotas(raw: unknown): ChatJudgeMeta["notas"] | undefined {

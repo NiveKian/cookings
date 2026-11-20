@@ -93,6 +93,10 @@ export interface ChatJudgeMeta {
     clareza: number;
   };
   problemas?: Array<{ criterio: string; descricao: string; bloqueante: boolean }>;
+  /** "relevancia" = juiz leve (só confere se atende ao pedido). Ausente = completo. */
+  modo?: "completo" | "relevancia";
+  /** Frase curta do juiz leve explicando o veredito. */
+  motivo?: string;
 }
 
 export interface ChatMessage {
