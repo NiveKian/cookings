@@ -40,18 +40,54 @@ function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-// Remove campos do JSON Schema que a API do Gemini não aceita.
-function sanitizeSchema(schema: unknown): unknown {
-  if (Array.isArray(schema)) return schema.map(sanitizeSchema);
-  if (schema && typeof schema === "object") {
-    const out: Record<string, unknown> = {};
-    for (const [key, value] of Object.entries(schema as Record<string, unknown>)) {
-      if (["title", "additionalProperties", "$schema", "default"].includes(key)) continue;
-      out[key] = sanitizeSchema(value);
+// Remove campos do JSON Schema que a API do Gemini não aceita. Também
+// resolve `$ref` locais (`#/$defs/Nome` e `#/definitions/Nome`) inlinando a
+// definição, já que o Gemini rejeita `$ref` e `$defs`.
+export function sanitizeSchema(schema: unknown): unknown {
+  const root =
+    schema && typeof schema === "object" && !Array.isArray(schema)
+      ? (schema as Record<string, unknown>)
+      : {};
+  const defs: Record<string, unknown> = {
+    ...((root.definitions as Record<string, unknown> | undefined) ?? {}),
+    ...((root.$defs as Record<string, unknown> | undefined) ?? {}),
+  };
+  return resolveAndStrip(schema, defs, new Set());
+}
+
+function resolveAndStrip(node: unknown, defs: Record<string, unknown>, visiting: Set<string>): unknown {
+  if (Array.isArray(node)) return node.map((n) => resolveAndStrip(n, defs, visiting));
+  if (!node || typeof node !== "object") return node;
+
+  const obj = node as Record<string, unknown>;
+  let base: Record<string, unknown> = {};
+  let visited: string | undefined;
+
+  if (typeof obj.$ref === "string") {
+    const m = /^#\/(?:\$defs|definitions)\/(.+)$/.exec(obj.$ref);
+    const name = m?.[1];
+    if (name && name in defs && !visiting.has(name)) {
+      visited = name;
+      visiting.add(name);
+      const inlined = resolveAndStrip(defs[name], defs, visiting);
+      if (inlined && typeof inlined === "object" && !Array.isArray(inlined)) {
+        base = inlined as Record<string, unknown>;
+      }
+    } else {
+      // Ref desconhecida ou cíclica: degrada para objeto genérico.
+      base = { type: "object" };
     }
-    return out;
   }
-  return schema;
+
+  const out: Record<string, unknown> = { ...base };
+  for (const [key, value] of Object.entries(obj)) {
+    if (["title", "additionalProperties", "$schema", "default", "$ref", "$defs", "definitions"].includes(key)) {
+      continue;
+    }
+    out[key] = resolveAndStrip(value, defs, visiting);
+  }
+  if (visited) visiting.delete(visited);
+  return out;
 }
 
 // O campo "response" do functionResponse do Gemini precisa ser um OBJETO
