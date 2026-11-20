@@ -5,7 +5,7 @@ Cliente React + Vite + TailwindCSS, com **arquitetura hexagonal**, e um pequeno 
 ## Duas Abas
 
 - **Informações**: consome os `service_*` (pasta `services/`) **diretamente do navegador**, via `fetch` — sem passar por IA ou MCP. Lista cursos, alunos e receitas.
-- **Chatbot**: envia a mensagem do usuário para `POST /api/chat` (backend deste próprio app). O orquestrador consulta o cache semântico, chama a LLM com tools MCP, passa a resposta por um juiz (segunda LLM) e devolve `{ reply, toolCallsExecuted, evidencias, judge, cache }`. A UI mostra selo de cache e o veredito do juiz em `<details>` (texto puro, sem markdown).
+- **Chatbot**: envia a mensagem do usuário para `POST /api/chat` (backend deste próprio app). O orquestrador consulta o cache semântico, chama a LLM com tools MCP, passa a resposta por um juiz (segunda LLM) e devolve `{ reply, toolCallsExecuted, evidencias, judge, cache }`. A UI mostra o selo de origem ("Gerado por AI" azul ou "Resposta do Cache" cinza, detalhe no tooltip) e o veredito do juiz em `<details>`, colorido por veredito e oculto em acerto de cache (texto puro, sem markdown).
 
 ## Por Que Há um Backend Aqui
 

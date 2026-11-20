@@ -54,7 +54,7 @@ Seed: `services/db/init/001_seed.sql`. O Postgres só executa `db/init/` com vol
 - Tools novas no MCP (receitas/cursos/matrículas) entram na lista de tools do loop; mutáveis invalidam o cache do domínio (`domain/toolPolicy.ts`).
 - Juiz (`JUDGE_*`) e embeddings (`EMBEDDING_*`) são portas próprias; provedor ≠ `LLM_PROVIDER`. Mock para esteira sem chave. O juiz aceita `JUDGE_PROVIDER=ollama` (`qwen2.5:1.5b` em `ollama/`); ollama não é `LLM_PROVIDER`.
 - Estado do chat fica em `ui/App.tsx` (sobrevive à troca de aba). Persistência opcional em `localStorage` (`ChatHistoryStorage.ts`), com consentimento. Histórico antigo `{role, content}` continua válido; metadados (cache/juiz) são opcionais.
-- UI: texto puro (`whitespace-pre-wrap`), selo "resposta do cache (similaridade X)" e `<details>` do juiz. Sem markdown.
+- UI: texto puro (`whitespace-pre-wrap`), selo de origem ("Gerado por AI" azul / "Resposta do Cache" cinza, detalhe como similaridade e motivo no tooltip `title`) e `<details>` do juiz colorido por veredito (aprovada verde, revisar âmbar, reprovada vermelho, indisponível cinza), oculto em HIT de cache. Sem markdown.
 - `GET /api/metrics`: contadores em memória. `EVAL_LOG_PATH`: JSONL por resposta (opcional).
 - Front da aba Informações chama os services no navegador (`VITE_SERVICE_*_URL`, localhost publicado). Hostname interno de container não resolve no browser.
 - URLs MCP: `server.ts` usa `MCP_*_URL` e, se `APP_ENV=local` (script `dev:server`), `MCP_*_URL_DEV`.
