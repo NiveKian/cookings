@@ -5,7 +5,7 @@ import { GeminiAdapter } from "../llm/GeminiAdapter";
 import { ClaudeAdapter } from "../llm/ClaudeAdapter";
 import { GptAdapter } from "../llm/GptAdapter";
 import { OllamaAdapter, urlSemBarraFinal } from "../llm/OllamaAdapter";
-import { LLMJudgeAdapter } from "./LLMJudgeAdapter";
+import { LLMJudgeAdapter, TIMEOUT_JUIZ_PADRAO_MS, VEREDITO_JSON_SCHEMA } from "./LLMJudgeAdapter";
 import { MockJudgeAdapter } from "./MockJudgeAdapter";
 
 export interface JudgeConfig {
@@ -13,6 +13,8 @@ export interface JudgeConfig {
   provider: string;
   maxRevisions: number;
   evidenceMaxChars: number;
+  /** Teto da avaliação em ms (JUDGE_TIMEOUT_MS). Estourou = unavailable. */
+  timeoutMs: number;
 }
 
 /**
@@ -26,7 +28,14 @@ export function readJudgeConfig(): JudgeConfig {
     provider,
     maxRevisions: parseEnvNumber(process.env.JUDGE_MAX_REVISIONS, 1),
     evidenceMaxChars: parseEnvNumber(process.env.JUDGE_EVIDENCE_MAX_CHARS, 6000),
+    timeoutMs: parseTimeoutMs(process.env.JUDGE_TIMEOUT_MS),
   };
+}
+
+/** 0, negativo, vazio ou inválido = padrão (60000 ms). */
+function parseTimeoutMs(raw: string | undefined): number {
+  const n = parseEnvNumber(raw, TIMEOUT_JUIZ_PADRAO_MS);
+  return n > 0 ? n : TIMEOUT_JUIZ_PADRAO_MS;
 }
 
 export function createJudgeAdapter(config: JudgeConfig = readJudgeConfig()): JudgePort {
@@ -41,7 +50,7 @@ export function createJudgeAdapter(config: JudgeConfig = readJudgeConfig()): Jud
     return new UnavailableJudgeAdapter();
   }
 
-  return new LLMJudgeAdapter(llm, config.evidenceMaxChars);
+  return new LLMJudgeAdapter(llm, config.evidenceMaxChars, config.timeoutMs);
 }
 
 function avisarSeMesmoProvedor(config: JudgeConfig): void {
@@ -84,8 +93,9 @@ function tentarCriarLlmDoJuiz(provider: string, modelRaw: string | undefined): L
     }
     case "ollama": {
       // Sem chave. URL e modelo vazios caem no padrão local.
+      // format = JSON schema do veredito: o modelo pequeno não foge do contrato.
       const baseUrl = urlSemBarraFinal(process.env.OLLAMA_BASE_URL, "http://127.0.0.1:11434");
-      return new OllamaAdapter(baseUrl, model ?? "qwen2.5:1.5b");
+      return new OllamaAdapter(baseUrl, model ?? "qwen2.5:1.5b", { format: VEREDITO_JSON_SCHEMA });
     }
     default:
       console.warn(`[judge] JUDGE_PROVIDER desconhecido (${provider}); juiz indisponível.`);

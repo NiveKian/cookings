@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { createJudgeAdapter } from "./judgeFactory";
+import { createJudgeAdapter, readJudgeConfig } from "./judgeFactory";
 
 const CHAVES = ["JUDGE_ENABLED", "JUDGE_PROVIDER", "JUDGE_MODEL", "OLLAMA_BASE_URL", "LLM_PROVIDER"] as const;
 const originais: Record<(typeof CHAVES)[number], string | undefined> = {
@@ -70,6 +70,25 @@ describe("judgeFactory", () => {
     expect(corpo!.model).toBe("qwen2.5:1.5b");
     expect(corpo!.stream).toBe(false);
     expect(corpo).not.toHaveProperty("tools");
+    const format = corpo!.format as { properties: Record<string, unknown>; required: string[] };
+    expect(format.properties.veredito).toEqual({ type: "string", enum: ["aprovar", "revisar", "reprovar"] });
+    expect(format.required).toContain("notas");
+    expect(corpo!.options).toEqual({ temperature: 0, num_ctx: 4096, num_predict: 400 });
+  });
+
+  test("JUDGE_TIMEOUT_MS 0 ou inválido cai no padrão de 60000", () => {
+    const original = process.env.JUDGE_TIMEOUT_MS;
+    try {
+      process.env.JUDGE_TIMEOUT_MS = "0";
+      expect(readJudgeConfig().timeoutMs).toBe(60000);
+      process.env.JUDGE_TIMEOUT_MS = "abc";
+      expect(readJudgeConfig().timeoutMs).toBe(60000);
+      process.env.JUDGE_TIMEOUT_MS = "1500";
+      expect(readJudgeConfig().timeoutMs).toBe(1500);
+    } finally {
+      if (original === undefined) delete process.env.JUDGE_TIMEOUT_MS;
+      else process.env.JUDGE_TIMEOUT_MS = original;
+    }
   });
 
   test("provider desconhecido não lança e o veredito fica indisponível", async () => {

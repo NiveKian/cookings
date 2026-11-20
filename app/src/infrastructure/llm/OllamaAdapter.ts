@@ -2,11 +2,22 @@ import type { ConversationTurn, LLMPort, LLMTurnResult, ToolDefinition } from ".
 
 // Adapter do Ollama só para o juiz. Não entra em llmFactory.ts (chat
 // principal). Sem chave de API. POST {baseUrl}/api/chat com
-// { model, messages, stream: false } — o campo tools nunca vai no JSON.
-// O juiz manda tools: [] e só turnos user/assistant.
+// { model, messages, stream: false, options, keep_alive } — o campo tools
+// nunca vai no JSON. O juiz manda tools: [] e só turnos user/assistant.
+// format (JSON schema) é opcional: com ele o Ollama restringe a saída ao schema.
 
 const BASE_URL_PADRAO = "http://127.0.0.1:11434";
 const MODELO_PADRAO = "qwen2.5:1.5b";
+
+// Determinístico, contexto suficiente para pergunta+resposta+evidências e
+// saída curta (só o JSON do veredito). keep_alive evita recarregar o modelo.
+const OPCOES_PADRAO = { temperature: 0, num_ctx: 4096, num_predict: 400 } as const;
+const KEEP_ALIVE_PADRAO = "30m";
+
+export interface OllamaAdapterOpcoes {
+  /** JSON schema que restringe a saída (campo format da API do Ollama). */
+  format?: Record<string, unknown>;
+}
 
 interface MensagemOllama {
   role: "system" | "user" | "assistant";
@@ -68,16 +79,23 @@ export class OllamaAdapter implements LLMPort {
   readonly providerName = "ollama";
   private readonly baseUrl: string;
   private readonly model: string;
+  private readonly format: Record<string, unknown> | undefined;
 
-  constructor(baseUrl: string = BASE_URL_PADRAO, model: string = MODELO_PADRAO) {
+  constructor(
+    baseUrl: string = BASE_URL_PADRAO,
+    model: string = MODELO_PADRAO,
+    opcoes: OllamaAdapterOpcoes = {}
+  ) {
     this.baseUrl = urlSemBarraFinal(baseUrl, BASE_URL_PADRAO);
     this.model = model.trim() || MODELO_PADRAO;
+    this.format = opcoes.format;
   }
 
   async converse(params: {
     systemPrompt: string;
     turns: ConversationTurn[];
     tools: ToolDefinition[];
+    signal?: AbortSignal;
   }): Promise<LLMTurnResult> {
     if (params.tools.length > 0) {
       console.warn(
@@ -93,6 +111,9 @@ export class OllamaAdapter implements LLMPort {
         ...turnosParaMensagens(params.turns),
       ],
       stream: false as const,
+      options: { ...OPCOES_PADRAO },
+      keep_alive: KEEP_ALIVE_PADRAO,
+      ...(this.format ? { format: this.format } : {}),
     };
 
     let response: Response;
@@ -101,6 +122,7 @@ export class OllamaAdapter implements LLMPort {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
+        ...(params.signal ? { signal: params.signal } : {}),
       });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);

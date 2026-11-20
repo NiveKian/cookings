@@ -60,5 +60,7 @@ export interface LLMPort {
     systemPrompt: string;
     turns: ConversationTurn[];
     tools: ToolDefinition[];
+    /** Opcional: cancela a chamada (ex.: timeout do juiz). Adapter que não suporta ignora. */
+    signal?: AbortSignal;
   }): Promise<LLMTurnResult>;
 }

@@ -53,6 +53,57 @@ describe("OllamaAdapter", () => {
     expect(resultado).toEqual({ type: "text", text: "veredito" });
   });
 
+  test("envia options determinísticas e keep_alive; sem format quando não informado", async () => {
+    let bodyBruto = "";
+    globalThis.fetch = (async (_input: string | URL | Request, init?: RequestInit) => {
+      bodyBruto = String(init?.body);
+      return new Response(JSON.stringify({ message: { role: "assistant", content: "ok" } }), { status: 200 });
+    }) as unknown as typeof fetch;
+
+    await new OllamaAdapter().converse({ systemPrompt: "s", turns: [{ role: "user", content: "u" }], tools: [] });
+
+    const body = JSON.parse(bodyBruto) as Record<string, unknown>;
+    expect(body.options).toEqual({ temperature: 0, num_ctx: 4096, num_predict: 400 });
+    expect(body.keep_alive).toBe("30m");
+    expect(body).not.toHaveProperty("format");
+  });
+
+  test("envia format quando passado no construtor", async () => {
+    let bodyBruto = "";
+    globalThis.fetch = (async (_input: string | URL | Request, init?: RequestInit) => {
+      bodyBruto = String(init?.body);
+      return new Response(JSON.stringify({ message: { role: "assistant", content: "{}" } }), { status: 200 });
+    }) as unknown as typeof fetch;
+
+    const format = { type: "object", properties: { veredito: { type: "string" } } };
+    await new OllamaAdapter("http://127.0.0.1:11434", "qwen2.5:1.5b", { format }).converse({
+      systemPrompt: "s",
+      turns: [{ role: "user", content: "u" }],
+      tools: [],
+    });
+
+    const body = JSON.parse(bodyBruto) as Record<string, unknown>;
+    expect(body.format).toEqual(format);
+    expect(body.keep_alive).toBe("30m");
+  });
+
+  test("signal abortado cancela o fetch e lança", async () => {
+    globalThis.fetch = ((_input: string | URL | Request, init?: RequestInit) =>
+      new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => reject(new Error("abortado")));
+      })) as unknown as typeof fetch;
+
+    const controle = new AbortController();
+    const promessa = new OllamaAdapter().converse({
+      systemPrompt: "s",
+      turns: [{ role: "user", content: "u" }],
+      tools: [],
+      signal: controle.signal,
+    });
+    controle.abort();
+    await expect(promessa).rejects.toThrow(/abortado/);
+  });
+
   test("HTTP 500 lança", async () => {
     globalThis.fetch = (async () => new Response("falhou", { status: 500 })) as unknown as typeof fetch;
     const adapter = new OllamaAdapter("http://127.0.0.1:11434", "qwen2.5:1.5b");
