@@ -1,21 +1,24 @@
 # Cookings 🍳
 
-Plataforma de cursos de culinária online — projeto acadêmico que demonstra uma arquitetura de **serviços web + servidores MCP + IA + cliente**, em torno de um mini-mundo coerente (cursos, matrículas de alunos e receitas/ingredientes).
+Plataforma de cursos de culinária online — projeto acadêmico de serviços web, servidores MCP, cliente e um chatbot especialista. O chat consulta o catálogo por tools, guarda pergunta parecida num cache semântico e passa a resposta por um juiz (outra IA, que pode ser o Ollama local).
 
 ## Visão Geral
 
-O projeto é dividido em 3 subprojetos independentes, cada um em sua pasta, comunicando-se via uma rede Docker externa compartilhada:
+O projeto tem quatro composes de pasta e um compose na raiz, todos na rede Docker externa `cookings-network`:
 
 ```
 cookings/
 ├── services/   → APIs REST em TypeScript (Bun + Hono) — fonte da verdade dos dados
-├── mcp/        → Servidores MCP em Python (uv + FastMCP) — expõem os services para uma IA
-└── app/        → Cliente React + Tailwind, com 2 abas:
-                   • Informações → consome os services diretamente (REST)
-                   • Chatbot     → conversa com a IA, que usa os servidores MCP como ferramentas
+├── mcp/        → Servidores MCP em Python (uv + FastMCP) — expõem os services para a IA
+├── app/        → Cliente React + Tailwind, com 2 abas:
+│                  • Informações → consome os services diretamente (REST)
+│                  • Chatbot     → IA + tools MCP, cache semântico e juiz
+├── ollama/     → modelo local qwen2.5:1.5b, só para o juiz
+├── docker-compose.yml          → sobe os quatro de uma vez (include)
+└── docker-compose.override.yml → ordem de subida e URL do Ollama
 ```
 
-Os **3 subprojetos** (`services`, `mcp` e `app`) têm cada um seu próprio `docker-compose.yml` e sobem na mesma rede Docker externa `cookings-network`, podendo ser executados de forma independente ou em conjunto.
+Cada pasta sobe sozinha. A raiz sobe o conjunto. Não misture os dois ao mesmo tempo: os nomes dos containers batem.
 
 Para uma explicação completa da arquitetura, decisões técnicas e convenções, veja **[Guide.md](./Guide.md)**.
 
@@ -39,7 +42,7 @@ O banco é um **único PostgreSQL**, organizado em **3 schemas** (um por domíni
 |---|---|---|
 | `cursos` | `cursos`, `aulas` | Catálogo de cursos e suas aulas |
 | `matriculas` | `alunos`, `matriculas` | Alunos cadastrados e suas matrículas/progresso em cursos |
-| `receitas` | `receitas`, `ingredientes`, `receita_ingredientes` | Receitas vinculadas a cursos/aulas, seus ingredientes e quantidades |
+| `receitas` | `receitas`, `ingredientes`, `receita_ingredientes`, `substituicoes` | Receitas, ingredientes (com alérgenos), quantidades e substituições |
 
 ```
 cursos.cursos ──1:N── cursos.aulas
@@ -51,7 +54,7 @@ matriculas.matriculas   receitas.receitas ──1:N── receita_ingredientes �
 matriculas.alunos
 ```
 
-O DDL completo (criação de schemas, tabelas, constraints e tipos) está documentado na seção **7 — "Banco de Dados e Modelagem de Dados"** do [Guide.md.md](./Guide.md.md#7-banco-de-dados-e-modelagem-de-dados), e já está implementado, junto com dados de exemplo, em `services/db/init/001_seed.sql`.
+O DDL e o seed estão em `services/db/init/001_seed.sql` (grupo `0000` = amostra original, grupo `0001` = catálogo ampliado). O cache das perguntas do chat não fica nesse Postgres: é um SQLite do `app` (`./data/cache.sqlite`). O desenho do chat está em [docs/PIPELINE_CACHE_JUIZ.md](./docs/PIPELINE_CACHE_JUIZ.md).
 
 ---
 
@@ -62,9 +65,11 @@ O DDL completo (criação de schemas, tabelas, constraints e tipos) está docume
 | APIs (`services`) | Bun + Hono + Drizzle ORM + Zod + PostgreSQL |
 | MCP (`mcp`) | Python + uv + FastMCP (transporte `streamable-http`) + httpx |
 | Cliente (`app`) | React + Vite + TailwindCSS, arquitetura hexagonal |
-| IA (`app`) | Gemini (padrão), trocável para Claude ou GPT via `.env` |
-| Banco de dados | PostgreSQL único, com seed automático na primeira execução |
-| Orquestração | 3× Docker Compose independentes (`services`, `mcp`, `app`) + rede externa `cookings-network` |
+| IA do chat (`app`) | Gemini, Claude, GPT ou mock (`LLM_PROVIDER`) |
+| Juiz (`app`) | Outra IA: Gemini, Claude, GPT, mock ou Ollama `qwen2.5:1.5b` (`JUDGE_PROVIDER`) |
+| Cache do chat | SQLite no `app` (`CACHE_DB_PATH`), similaridade por cosseno |
+| Banco dos domínios | PostgreSQL único, seed na primeira execução do volume |
+| Orquestração | Compose por pasta (`services`, `mcp`, `app`, `ollama`) ou o da raiz, rede `cookings-network` |
 
 ---
 
@@ -105,7 +110,7 @@ cp mcp/mcp_receitas/.env.example mcp/mcp_receitas/.env
 cp app/.env.example app/.env
 ```
 
-> No `.env` do `app`, defina `LLM_PROVIDER` (`gemini`, `claude` ou `gpt`) e a respectiva API key.
+> No `.env` do `app`, defina `LLM_PROVIDER` (`gemini`, `claude`, `gpt` ou `mock`) e a chave desse provedor. O juiz é outro: `JUDGE_PROVIDER` (`mock`, `gemini`, `claude`, `gpt` ou `ollama`). Cache: `CACHE_ENABLED=true`. O exemplo completo está em `app/.env.example`.
 
 ### Subir tudo pela raiz (atalho)
 
@@ -210,13 +215,19 @@ cookings/
 │   ├── Dockerfile
 │   └── .env.example
 │
-├── Guide.md.md
-└── README.md
+├── docker-compose.yml
+├── docker-compose.override.yml
+├── docs/
+│   └── PIPELINE_CACHE_JUIZ.md
+├── Guide.md
+└── Readme.md
 ```
 
 ---
 
 ## Documentação Adicional
 
-- **[Guide.md](./Guide.md)** — guia de orientação com contexto arquitetural completo, decisões técnicas e convenções (recomendado para quem for dar manutenção ao projeto com apoio de uma IA).
-- Cada subpasta (`services/`, `mcp/`, `app/`) deve conter seu próprio `README.md` com instruções específicas de execução isolada.
+- **[Guide.md](./Guide.md)** — contexto, decisões e convenções.
+- **[docs/PIPELINE_CACHE_JUIZ.md](./docs/PIPELINE_CACHE_JUIZ.md)** — caminho da pergunta: cache, IA, tools e juiz.
+- **[AGENTS.md](./AGENTS.md)** — como alterar o repositório e como validar.
+- Cada subpasta (`services/`, `mcp/`, `app/`, `ollama/`) tem o próprio README de execução isolada.

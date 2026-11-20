@@ -33,21 +33,27 @@ cookings/
 │   ├── mcp_matriculas/
 │   └── mcp_receitas/
 │
-└── app/                # Cliente (React + Tailwind, hexagonal) — ANTES chamado "chatbot"
-    ├── src/
-    │   ├── domain/         # entidades + portas (interfaces)
-    │   ├── application/    # casos de uso
-    │   ├── infrastructure/ # adapters (llm/, http/)
-    │   └── ui/
-    │       ├── InfoTab/     # aba "Informações" — consome services via REST direto
-    │       └── ChatTab/     # aba "Chatbot" — conversa com a IA (que usa MCP)
-    ├── docker-compose.yml
-    ├── Dockerfile
-    └── .env.example
+├── ollama/             # juiz local (qwen2.5:1.5b); não é o LLM do chat
+│   └── docker-compose.yml
+│
+├── app/                # Cliente (React + Tailwind, hexagonal) — ANTES chamado "chatbot"
+│   ├── src/
+│   │   ├── domain/         # entidades + portas (interfaces)
+│   │   ├── application/    # casos de uso (chat: cache → IA → juiz)
+│   │   ├── infrastructure/ # adapters (llm/, judge/, cache/, embeddings/, http/)
+│   │   └── ui/
+│   │       ├── InfoTab/     # aba "Informações" — consome services via REST direto
+│   │       └── ChatTab/     # aba "Chatbot" — IA + MCP, selo de cache e juiz
+│   ├── docker-compose.yml
+│   ├── Dockerfile
+│   └── .env.example
+│
+├── docker-compose.yml          # include dos quatro composes
+└── docker-compose.override.yml # ordem de subida e OLLAMA_BASE_URL
 ```
 
 > **Importante**: a pasta chama-se `app`, não `chatbot`. `chatbot` é só o nome informal do módulo de chat dentro dela.
-> Assim como `services` e `mcp`, o `app` também sobe via seu próprio `docker-compose.yml`, entrando na mesma rede externa `cookings-network` — os **3 subprojetos** seguem o mesmo padrão de execução independente (cada um com seu compose), podendo ser levantados isoladamente ou em conjunto.
+> `services`, `mcp`, `app` e `ollama` sobem cada um pelo próprio `docker-compose.yml`, na rede externa `cookings-network`. A raiz sobe os quatro juntos. Não misture raiz e pasta ao mesmo tempo: os `container_name` colidem.
 
 ---
 
@@ -57,11 +63,12 @@ cookings/
 |---|---|---|
 | `services` | Fonte da verdade dos dados (CRUD, regras de negócio) | `app` (direto) e `mcp` (indireto, via HTTP) |
 | `mcp` | Camada de acesso MCP — traduz tools MCP em chamadas HTTP para `services` | A IA usada pelo `app` |
-| `app` | Único cliente humano do sistema, com **2 abas**: | Usuário final |
+| `app` | Único cliente humano. Chat: IA principal, tools MCP, cache semântico e juiz | Usuário final |
+| `ollama` | Sobe o modelo local do juiz (`qwen2.5:1.5b`). Não responde o chat | O `app`, quando `JUDGE_PROVIDER=ollama` |
 
 **Abas do `app`:**
 - **Aba "Informações"**: consome os `services` diretamente via REST (fetch comum), sem passar por IA ou MCP. É a visão "dashboard" tradicional (listagens, CRUD, etc.).
-- **Aba "Chatbot"**: interface de chat que envia a mensagem do usuário para a IA (Gemini por padrão), a qual usa as **tools MCP** (`mcp_cursos`, `mcp_matriculas`, `mcp_receitas`) para responder com dados reais.
+- **Aba "Chatbot"**: `POST /api/chat` → cache semântico → IA principal (Gemini, Claude, GPT ou mock) com tools MCP → juiz (outro provedor, ou Ollama). A resposta mostra se veio do cache e o veredito do juiz. O desenho está em [docs/PIPELINE_CACHE_JUIZ.md](./docs/PIPELINE_CACHE_JUIZ.md).
 
 ---
 
@@ -71,7 +78,7 @@ cookings/
 |---|---|---|
 | `services` | **Bun** (runtime do servidor) + **Hono** (framework) + **Drizzle ORM** + **Zod** + **PostgreSQL** | O desenvolvedor usa **Node 22** apenas no terminal pessoal para testes/scripts avulsos — o servidor roda em **Bun** dentro do Docker. Não confundir os dois: o `Dockerfile` de cada `service_*` usa imagem Bun. |
 | `mcp` | **Python + uv** + **FastMCP** (`mcp` SDK oficial) + **httpx** | Transporte recomendado: **streamable-http** (não `stdio`), pois os containers são separados do `app`. |
-| `app` | **React + Vite + TailwindCSS**, arquitetura **hexagonal** | LLM padrão: **Gemini**. Deve ser trivial trocar para Claude/GPT via `.env` (`LLM_PROVIDER=gemini|claude|gpt`) e uma factory que retorna o adapter certo, todos implementando a mesma porta `LLMPort`. Também sobe via `docker-compose.yml` próprio (build da SPA + servidor estático, ex: Vite build servido por Nginx/`serve`), na mesma rede `cookings-network`. |
+| `app` | **React + Vite + TailwindCSS**, arquitetura **hexagonal**, servidor **Bun + Hono** | A IA do chat implementa `LLMPort` (`LLM_PROVIDER=gemini\|claude\|gpt\|mock`). O juiz é outra porta (`JUDGE_PROVIDER`, inclusive `ollama`). O cache é `SqliteSemanticCache` + `EmbeddingPort`. O Docker do app faz o build do Vite e sobe o `server.ts` com Bun, na rede `cookings-network`. |
 
 ### Regra de Simplicidade (explícita e importante)
 - `services` e `mcp` devem ser **simples e com poucos arquivos** — este é um trabalho de escala pequena, não um sistema de produção.
@@ -96,7 +103,9 @@ cookings/
   ```bash
   docker network create cookings-network
   ```
-- **Os 3 subprojetos** (`services`, `mcp` e `app`) têm cada um seu próprio `docker-compose.yml` e referenciam essa mesma rede como `external: true` — nenhum deles depende dos outros para subir, mas todos conseguem se comunicar por hostname quando estão na mesma rede.
+- **Quatro composes de pasta** (`services`, `mcp`, `app`, `ollama`) referenciam essa rede como `external: true`. A raiz (`docker-compose.yml` + `docker-compose.override.yml`) inclui os quatro. Não use só `-f docker-compose.yml`: o override traz a ordem e `OLLAMA_BASE_URL=http://ollama:11434`.
+- `cookings_ollama` é o servidor do modelo (porta 11434) e fica no ar. `cookings_ollama_pull` baixa `qwen2.5:1.5b` e termina (exit 0 é sucesso). O app não espera esse pull para subir.
+- `docker compose down -v` na raiz apaga Postgres, o SQLite do cache e o modelo. Os volumes da raiz têm nome fixo (`cookings_pgdata`, `cookings_cache`, `cookings_ollama`) e não são os volumes prefixados de quem sobe só uma pasta.
 - `mcp_*` chama `service_*` via hostname interno (ex: `http://service_cursos:3001`), nunca via `localhost`.
 - O `app`, quando executado via Docker, também entra em `cookings-network`; suas chamadas para os `service_*` podem usar o hostname interno (ex: `http://service_cursos:3001`) quando o fetch acontece no lado servidor/build, mas como é uma SPA que roda no **navegador do usuário**, as chamadas feitas pelo browser continuam usando as URLs públicas configuradas em `.env` (ex: `VITE_SERVICE_CURSOS_URL=http://localhost:3001`) — o navegador não resolve hostnames internos do Docker.
 
@@ -126,9 +135,10 @@ cookings/
 **Schema `receitas`** (dono: `service_receitas`)
 | Tabela | Campos principais |
 |---|---|
-| `receitas.ingredientes` | `id` (uuid, pk), `nome` (unique), `unidade_padrao` (ex: `g`, `ml`, `unidade`) — catálogo compartilhado de ingredientes |
-| `receitas.receitas` | `id` (uuid, pk), `curso_id` (uuid, referência a `cursos.cursos.id`, **sem FK**), `aula_id` (uuid, referência a `cursos.aulas.id`, **sem FK**, nullable), `nome`, `modo_preparo` (text), `tempo_preparo_minutos` (int), `porcoes` (int) |
-| `receitas.receita_ingredientes` | `id` (uuid, pk), `receita_id` (uuid, **FK** → `receitas.receitas.id`), `ingrediente_id` (uuid, **FK** → `receitas.ingredientes.id`), `quantidade` (numeric), `unidade` (text), `observacao` (text, nullable — ex: substituição, alérgeno) |
+| `receitas.ingredientes` | `id`, `nome` (unique), `unidade_padrao`, `alergenos TEXT[]` (vocabulário: `gluten`, `lactose`, `ovo`, `soja`, `amendoim`, `castanhas`, `peixe`, `crustaceos`) |
+| `receitas.receitas` | `id`, `curso_id` (sem FK, nulo só se `origem = ia`), `aula_id` (sem FK, nullable), `nome`, `modo_preparo`, `tempo_preparo_minutos`, `porcoes`, `origem` (`curso`\|`ia`) |
+| `receitas.receita_ingredientes` | `id`, `receita_id` (**FK**), `ingrediente_id` (**FK**), `quantidade`, `unidade`, `observacao` |
+| `receitas.substituicoes` | `id`, `ingrediente_id` (**FK**, cascade), `substituto` (texto livre), `observacao` |
 
 ### 7.2 Diagrama de Relacionamento (conceitual)
 
@@ -143,6 +153,7 @@ cursos.cursos / cursos.aulas
       │ (referência sem FK)
       ▼
 receitas.receitas ──1:N── receitas.receita_ingredientes ──N:1── receitas.ingredientes
+receitas.ingredientes ──1:N── receitas.substituicoes
 ```
 
 ### 7.3 DDL de Referência
@@ -197,17 +208,23 @@ CREATE TABLE matriculas.matriculas (
 CREATE TABLE receitas.ingredientes (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   nome TEXT NOT NULL UNIQUE,
-  unidade_padrao TEXT NOT NULL
+  unidade_padrao TEXT NOT NULL,
+  alergenos TEXT[] NOT NULL DEFAULT '{}',
+  CONSTRAINT ingredientes_alergenos_vocab_chk CHECK (
+    alergenos <@ ARRAY['gluten','lactose','ovo','soja','amendoim','castanhas','peixe','crustaceos']::TEXT[]
+  )
 );
 
 CREATE TABLE receitas.receitas (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  curso_id UUID NOT NULL,       -- referência lógica a cursos.cursos.id (sem FK)
-  aula_id UUID,                 -- referência lógica a cursos.aulas.id (sem FK), opcional
+  curso_id UUID,                -- referência lógica, sem FK; nulo só quando origem = 'ia'
+  aula_id UUID,
   nome TEXT NOT NULL,
   modo_preparo TEXT NOT NULL,
   tempo_preparo_minutos INT NOT NULL,
-  porcoes INT NOT NULL DEFAULT 1
+  porcoes INT NOT NULL DEFAULT 1,
+  origem TEXT NOT NULL DEFAULT 'curso' CHECK (origem IN ('curso', 'ia')),
+  CONSTRAINT receitas_origem_curso_chk CHECK (origem <> 'curso' OR curso_id IS NOT NULL)
 );
 
 CREATE TABLE receitas.receita_ingredientes (
@@ -218,11 +235,18 @@ CREATE TABLE receitas.receita_ingredientes (
   unidade TEXT NOT NULL,
   observacao TEXT
 );
+
+CREATE TABLE receitas.substituicoes (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  ingrediente_id UUID NOT NULL REFERENCES receitas.ingredientes(id) ON DELETE CASCADE,
+  substituto TEXT NOT NULL,
+  observacao TEXT
+);
 ```
 
 > Este DDL, mais os `INSERT`s de dados de exemplo, já está escrito em `services/db/init/001_seed.sql`.
 >
-> **Nota**: o seed usa **IDs fixos (literais)** em vez de `gen_random_uuid()` nos `INSERT`s, para facilitar testes manuais e chamadas de exemplo nos servidores MCP (ex: sempre saber que o curso "Fundamentos da Culinária Italiana" tem `id = '10000000-0000-0000-0000-000000000001'`). Padrão de prefixo por entidade: `1000...` cursos, `2000...` aulas, `3000...` alunos, `4000...` matrículas, `5000...` ingredientes, `6000...` receitas.
+> **Nota**: o seed usa **IDs fixos**. Prefixo por entidade: `1000` cursos, `2000` aulas, `3000` alunos, `4000` matrículas, `5000` ingredientes, `6000` receitas, `7000` substituições. Grupo `0000` é a amostra original; grupo `0001` é o catálogo ampliado. Exemplo: o curso "Fundamentos da Culinária Italiana" é `10000000-0000-0000-0000-000000000001`. O arquivo SQL do seed é a fonte da verdade; este bloco é o recorte do schema.
 
 ### 7.4 Endpoints Esperados por Serviço (referência para implementação)
 
@@ -230,7 +254,7 @@ CREATE TABLE receitas.receita_ingredientes (
 |---|---|
 | `service_cursos` | `GET/POST /cursos`, `GET/PUT/DELETE /cursos/:id`, `GET /cursos/:id/aulas`, `POST /cursos/:id/aulas` |
 | `service_matriculas` | `GET/POST /alunos`, `GET /alunos/:id`, `GET/POST /matriculas`, `GET /matriculas/:id`, `PATCH /matriculas/:id/progresso` |
-| `service_receitas` | `GET/POST /receitas`, `GET /receitas/:id`, `GET /receitas?curso_id=`, `GET/POST /ingredientes`, `POST /receitas/:id/ingredientes` |
+| `service_receitas` | `GET/POST /receitas` (filtros `ingrediente`, `modo`, `nome`), `GET /receitas/:id` (com alérgenos), `GET/POST /ingredientes`, `GET /ingredientes/:id/substituicoes`, `POST /receitas/:id/ingredientes`. Receita `origem=ia` pode nascer sem `cursoId` |
 
 ---
 
@@ -244,7 +268,7 @@ CREATE TABLE receitas.receita_ingredientes (
 ## 9. O Que NÃO Fazer
 
 - Não sugerir autenticação/autorização (JWT, OAuth, etc.) a menos que explicitamente pedido — fora do escopo do trabalho.
-- Não criar múltiplos bancos de dados.
+- Não criar outro Postgres nem um banco por serviço. O cache semântico é a exceção combinada: um arquivo SQLite dentro do `app` (`CACHE_DB_PATH`), não um schema do `cookings_db`.
 - Não criar `FOREIGN KEY` entre schemas diferentes (ex: `receitas` apontando para `cursos`) — a referência é sempre lógica (só a coluna UUID), nunca uma constraint de banco.
 - Não usar `stdio` como transporte MCP (não funciona bem entre containers separados).
 - Não renomear `app` de volta para `chatbot`, nem `services`/`mcp` para outros nomes, sem confirmação explícita.
@@ -257,14 +281,12 @@ CREATE TABLE receitas.receita_ingredientes (
 
 > Esta seção deve ser **atualizada conforme o projeto avança**, para que uma LLM futura saiba exatamente onde o projeto está.
 
-- [x] Planejamento geral definido (este documento + README.md)
-- [x] Modelagem de dados (tabelas de cursos, matrículas, receitas) + DDL de referência definidos
-- [x] `services/db/init/001_seed.sql` escrito (DDL + dados de exemplo)
-- [x] `.gitignore` geral criado na raiz do projeto
-- [ ] Implementação dos 3 `service_*`
-- [ ] Implementação dos 3 `mcp_*`
-- [ ] Implementação do `app` (estrutura hexagonal + aba Informações + aba Chatbot)
-- [ ] Integração end-to-end
+- [x] `services`, `mcp` e `app` implementados e ligados pela rede `cookings-network`
+- [x] Seed ampliado (grupo `0001`) e schema de alérgenos, `origem` e `substituicoes`
+- [x] Tools MCP de busca, alérgeno, porções, lista de compras, receita gerada, substituição e resumo de progresso
+- [x] Cache semântico (SQLite no `app`) e juiz (`JUDGE_PROVIDER`, inclusive Ollama `qwen2.5:1.5b`)
+- [x] Compose da raiz inclui `services`, `mcp`, `app` e `ollama`
+- [ ] Prova com chave real de Gemini/Claude/GPT e com o juiz Ollama no ambiente de quem desenvolve (a esteira com `LLM_PROVIDER=mock` roda sem chave)
 
 ---
 
@@ -284,6 +306,8 @@ CREATE TABLE receitas.receita_ingredientes (
 | SDK MCP | FastMCP (`mcp` oficial) |
 | Transporte MCP | streamable-http |
 | Frontend | React + Vite + Tailwind |
-| Orquestração | 3 `docker-compose.yml` independentes (`services`, `mcp`, `app`), todos na network `cookings-network` |
-| Arquitetura do app | Hexagonal (portas/adapters, foco em `LLMPort`) |
-| LLM padrão do app | Gemini (trocável via `.env`) |
+| Orquestração | Compose por pasta (`services`, `mcp`, `app`, `ollama`) ou o da raiz, rede `cookings-network` |
+| Arquitetura do app | Hexagonal: `LLMPort`, `JudgePort`, `EmbeddingPort`, `SemanticCachePort` |
+| IA do chat | `LLM_PROVIDER`: gemini, claude, gpt ou mock |
+| Juiz | `JUDGE_PROVIDER` diferente do chat; Ollama usa `qwen2.5:1.5b` |
+| Cache do chat | SQLite `./data/cache.sqlite`, cosseno, TTL |
